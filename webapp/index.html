@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBD2 CAN Logger</title>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #0e1117;
+      --bg2:       #161b25;
+      --bg3:       #1e2535;
+      --border:    #2a3347;
+      --accent:    #00d4ff;
+      --accent2:   #ff6b35;
+      --green:     #00e676;
+      --red:       #ff1744;
+      --yellow:    #ffd740;
+      --text:      #e0e8f0;
+      --text2:     #8899aa;
+      --font:      'Segoe UI', system-ui, sans-serif;
+      --mono:      'Cascadia Code', 'Fira Mono', monospace;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--bg2);
+      border-bottom: 2px solid var(--accent);
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 52px;
+    }
+    .logo {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 1px;
+    }
+    .logo span { color: var(--accent2); }
+    .conn-bar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 6px var(--red);
+      transition: background .3s, box-shadow .3s;
+    }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .status-dot.warning   { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+    #conn-label { color: var(--text2); font-size: 12px; }
+    .btn {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: border-color .2s, background .2s;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn.primary { background: var(--accent); color: #000; font-weight: 600; border-color: var(--accent); }
+    .btn.primary:hover { background: #00b8d9; }
+    .btn.danger { border-color: var(--red); color: var(--red); }
+    .btn.danger:hover { background: rgba(255,23,68,.15); }
+    .btn.success { border-color: var(--green); color: var(--green); }
+    .btn.success:hover { background: rgba(0,230,118,.1); }
+
+    /* ── Tabs ── */
+    nav.tabs {
+      background: var(--bg2);
+      display: flex;
+      gap: 2px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--text2);
+      padding: 12px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: var(--font);
+      border-bottom: 3px solid transparent;
+      transition: color .2s, border-color .2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn:hover:not(.active) { color: var(--text); }
+    .tab-btn .icon { font-size: 15px; }
+
+    /* ── Tab Panels ── */
+    .tab-panel { display: none; flex: 1; overflow: hidden; }
+    .tab-panel.active { display: flex; flex-direction: column; }
+
+    /* ── Dashboard Grid ── */
+    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text2); margin-bottom: 12px; }
+
+    /* ─── TAB 1: Live Data ─── */
+    #tab-live {
+      padding: 16px;
+      gap: 16px;
+    }
+    .live-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+    }
+    .gauge-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 12px;
+      text-align: center;
+    }
+    .gauge-card .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .8px; }
+    .gauge-card .value { font-size: 28px; font-weight: 700; color: var(--accent); font-family: var(--mono); margin: 4px 0 2px; }
+    .gauge-card .unit  { font-size: 11px; color: var(--text2); }
+    .gauge-card.highlight .value { color: var(--green); }
+    .gauge-card.warn .value { color: var(--yellow); }
+
+    #live-frame-table-wrap {
+      flex: 1;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    table.frame-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    table.frame-table th {
+      background: var(--bg3);
+      color: var(--text2);
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: 600;
+      font-family: var(--font);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      position: sticky;
+      top: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    table.frame-table td {
+      padding: 5px 10px;
+      border-bottom: 1px solid rgba(42,51,71,.5);
+      color: var(--text);
+    }
+    table.frame-table tr:hover td { background: rgba(0,212,255,.04); }
+    table.frame-table tr.new-frame td { animation: flashRow .4s ease; }
+    @keyframes flashRow { 0% { background: rgba(0,212,255,.18); } 100% { background: transparent; } }
+
+    .live-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    #frame-count-badge {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+    }
+    #filter-input {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-family: var(--mono);
+      font-size: 12px;
+      width: 200px;
+    }
+    #filter-input:focus { outline: none; border-color: var(--accent); }
+
+    /* ─── TAB 2: Map Reconstruction ─── */
+    #tab-maps {
+      padding: 16px;
+      gap: 16px;
+      overflow: auto;
+    }
+    .maps-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 800px) { .maps-grid { grid-template-columns: 1fr; } }
+
+    canvas.map-canvas {
+      width: 100%;
+      height: 240px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    /* ─── TAB 3: DBC Decoder ─── */
+    #tab-dbc {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 16px;
+      overflow: hidden;
+    }
+    .dbc-top {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .dbc-drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 20px 30px;
+      text-align: center;
+      color: var(--text2);
+      cursor: pointer;
+      transition: border-color .2s;
+      min-width: 220px;
+    }
+    .dbc-drop-zone:hover, .dbc-drop-zone.drag-over { border-color: var(--accent); color: var(--accent); }
+    .dbc-drop-zone .big-icon { font-size: 32px; display: block; margin-bottom: 6px; }
+    #dbc-file-input { display: none; }
+    #dbc-signal-table-wrap { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+
+    /* ─── TAB 4: Log Viewer ─── */
+    #tab-logs {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 16px;
+      overflow: hidden;
+    }
+    .log-console {
+      flex: 1;
+      background: #080c12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .log-line { color: var(--text2); }
+    .log-line.can { color: #7ecfff; }
+    .log-line.info { color: var(--green); }
+    .log-line.error { color: var(--red); }
+    .log-line.warn { color: var(--yellow); }
+
+    /* ─── TAB 5: Config ─── */
+    #tab-config {
+      padding: 20px;
+      overflow: auto;
+      gap: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+    .config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 700px) { .config-grid { grid-template-columns: 1fr; } }
+    .config-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .config-row label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .7px; }
+    .config-row input, .config-row select {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 5px;
+      font-size: 13px;
+    }
+    .config-row input:focus, .config-row select:focus { outline: none; border-color: var(--accent); }
+    .config-row .hint { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+    /* ─── TAB 6: Serial Console ─── */
+    #tab-serial {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 12px;
+      overflow: hidden;
+    }
+    #serial-console {
+      flex: 1;
+      background: #050810;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .serial-line.rx { color: #7ecfff; }
+    .serial-line.tx { color: var(--yellow); }
+    .serial-line.sys { color: var(--text2); font-style: italic; }
+    .serial-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    #serial-input {
+      flex: 1;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+    #serial-input:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Misc ── */
+    .flex { display: flex; }
+    .flex-col { display: flex; flex-direction: column; }
+    .gap-8 { gap: 8px; }
+    .gap-12 { gap: 12px; }
+    .ml-auto { margin-left: auto; }
+    .chip {
+      display: inline-block;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-family: var(--mono);
+    }
+    .chip.green { border-color: var(--green); color: var(--green); }
+    .chip.red   { border-color: var(--red);   color: var(--red);   }
+    .chip.blue  { border-color: var(--accent); color: var(--accent); }
+
+    /* Chart placeholder */
+    .chart-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      color: var(--text2);
+      font-size: 13px;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a4a60; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header>
+  <div class="logo">OBD2<span>CAN</span>Logger</div>
+  <div class="chip blue" id="device-chip">No Device</div>
+
+  <div class="conn-bar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="conn-label">Disconnected</span>
+    <button class="btn primary" id="connect-btn" onclick="connectSerial()">Connect USB</button>
+    <button class="btn danger" id="disconnect-btn" onclick="disconnectSerial()" style="display:none">Disconnect</button>
+    <button class="btn" onclick="sendCmd({cmd:'status'})">⟳ Status</button>
+  </div>
+</header>
+
+<!-- ═══════════════════════ TABS ═══════════════════════ -->
+<nav class="tabs">
+  <button class="tab-btn active" onclick="switchTab('live', this)">
+    <span class="icon">📡</span> Live Data
+  </button>
+  <button class="tab-btn" onclick="switchTab('maps', this)">
+    <span class="icon">🗺️</span> Map Reconstruction
+  </button>
+  <button class="tab-btn" onclick="switchTab('dbc', this)">
+    <span class="icon">📋</span> DBC Decoder
+  </button>
+  <button class="tab-btn" onclick="switchTab('logs', this)">
+    <span class="icon">💾</span> Log Viewer
+  </button>
+  <button class="tab-btn" onclick="switchTab('config', this)">
+    <span class="icon">⚙️</span> Configuration
+  </button>
+  <button class="tab-btn" onclick="switchTab('serial', this)">
+    <span class="icon">🖥️</span> Serial Console
+  </button>
+</nav>
+
+<!-- ═════════════════════ TAB: LIVE DATA ═════════════════════ -->
+<div class="tab-panel active flex-col gap-12" id="tab-live" style="padding:16px;overflow:hidden">
+
+  <!-- Gauges row -->
+  <div class="live-grid" id="gauges-grid">
+    <div class="gauge-card" id="gauge-rpm">
+      <div class="label">Engine RPM</div>
+      <div class="value" id="val-rpm">—</div>
+      <div class="unit">rpm</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Vehicle Speed</div>
+      <div class="value" id="val-speed">—</div>
+      <div class="unit">km/h</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Throttle Pos</div>
+      <div class="value" id="val-tps">—</div>
+      <div class="unit">%</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Coolant Temp</div>
+      <div class="value" id="val-ect">—</div>
+      <div class="unit">°C</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">MAF Rate</div>
+      <div class="value" id="val-maf">—</div>
+      <div class="unit">g/s</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Short Fuel Trim</div>
+      <div class="value" id="val-stft">—</div>
+      <div class="unit">%</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Long Fuel Trim</div>
+      <div class="value" id="val-ltft">—</div>
+      <div class="unit">%</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Intake MAP</div>
+      <div class="value" id="val-map">—</div>
+      <div class="unit">kPa</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">O2 Sensor B1S1</div>
+      <div class="value" id="val-o2">—</div>
+      <div class="unit">V</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Ign. Advance</div>
+      <div class="value" id="val-ign">—</div>
+      <div class="unit">°BTDC</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Frames/sec</div>
+      <div class="value highlight" id="val-fps">0</div>
+      <div class="unit">fps</div>
+    </div>
+    <div class="gauge-card">
+      <div class="label">Total Frames</div>
+      <div class="value" id="val-total">0</div>
+      <div class="unit">frames</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="live-controls">
+    <span id="frame-count-badge">0 frames</span>
+    <input id="filter-input" type="text" placeholder="Filter by ID: 0x7E8,0x7DF..." oninput="updateFilter()" />
+    <button class="btn" onclick="clearFrameTable()">Clear</button>
+    <button class="btn success" onclick="sendCmd({cmd:'start'})">▶ Start Log</button>
+    <button class="btn danger"  onclick="sendCmd({cmd:'stop'})">■ Stop Log</button>
+    <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:12px">
+      <input type="checkbox" id="pause-scroll" /> Pause scroll
+    </label>
+    <span class="ml-auto" style="font-size:11px;color:var(--text2)">
+      Web Serial API — Chrome/Edge required
+    </span>
+  </div>
+
+  <!-- Frame Table -->
+  <div id="live-frame-table-wrap" style="flex:1;overflow:auto">
+    <table class="frame-table">
+      <thead>
+        <tr>
+          <th>Time (ms)</th>
+          <th>CAN ID</th>
+          <th>Ext</th>
+          <th>FD</th>
+          <th>DLC</th>
+          <th>Data (hex)</th>
+          <th>Decoded Signal</th>
+        </tr>
+      </thead>
+      <tbody id="frame-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═════════════════════ TAB: MAP RECONSTRUCTION ═════════════════════ -->
+<div class="tab-panel flex-col" id="tab-maps" style="padding:16px;gap:16px;overflow:auto">
+
+  <div class="panel">
+    <div class="panel-title">Map Reconstruction — Engine Data</div>
+    <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:12px">
+      Maps are built live from logged CAN frames using OBD2 PIDs (Mode 01) and DBC-decoded signals.
+      Connect the device and start logging — maps populate in real time.
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="clearMaps()">Clear Maps</button>
+      <button class="btn primary" onclick="exportMaps()">Export JSON</button>
+    </div>
+  </div>
+
+  <div class="maps-grid">
+    <!-- RPM vs TPS -->
+    <div class="panel">
+      <div class="panel-title">Throttle vs RPM</div>
+      <canvas id="map-tps-rpm" width="500" height="240"></canvas>
+    </div>
+    <!-- Fuel Trim Map -->
+    <div class="panel">
+      <div class="panel-title">Short Fuel Trim vs RPM</div>
+      <canvas id="map-stft-rpm" width="500" height="240"></canvas>
+    </div>
+    <!-- Ignition Map -->
+    <div class="panel">
+      <div class="panel-title">Ignition Advance vs RPM</div>
+      <canvas id="map-ign-rpm" width="500" height="240"></canvas>
+    </div>
+    <!-- MAF vs RPM -->
+    <div class="panel">
+      <div class="panel-title">MAF vs RPM</div>
+      <canvas id="map-maf-rpm" width="500" height="240"></canvas>
+    </div>
+    <!-- MAP pressure vs RPM -->
+    <div class="panel">
+      <div class="panel-title">Intake MAP vs RPM</div>
+      <canvas id="map-map-rpm" width="500" height="240"></canvas>
+    </div>
+    <!-- Speed vs Gear (approx) -->
+    <div class="panel">
+      <div class="panel-title">Speed vs RPM (gear estimation)</div>
+      <canvas id="map-speed-rpm" width="500" height="240"></canvas>
+    </div>
+  </div>
+
+  <!-- Raw map data table -->
+  <div class="panel">
+    <div class="panel-title">Captured Map Data Points</div>
+    <div style="overflow:auto;max-height:200px">
+      <table class="frame-table" id="map-data-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Time (ms)</th><th>RPM</th><th>TPS%</th>
+            <th>STFT%</th><th>LTFT%</th><th>IGN°</th><th>MAF g/s</th>
+            <th>MAP kPa</th><th>Speed</th><th>ECT°C</th>
+          </tr>
+        </thead>
+        <tbody id="map-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════════════ TAB: DBC DECODER ═════════════════════ -->
+<div class="tab-panel" id="tab-dbc">
+  <div class="dbc-top">
+    <div class="dbc-drop-zone" id="dbc-drop"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="handleDbcDrop(event)"
+         onclick="document.getElementById('dbc-file-input').click()">
+      <span class="big-icon">📂</span>
+      Drop DBC file here<br>
+      <small style="font-size:11px">or click to browse</small>
+    </div>
+    <input type="file" id="dbc-file-input" accept=".dbc" onchange="loadDbcFile(event)" />
+
+    <div style="flex:1">
+      <div class="panel-title">Loaded DBC</div>
+      <div id="dbc-status" style="color:var(--text2);font-size:13px">No DBC file loaded</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap" id="dbc-btn-row">
+        <button class="btn" onclick="loadBuiltinObd2()">Load Built-in OBD2 PIDs</button>
+        <button class="btn" onclick="clearDbc()">Clear</button>
+      </div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text2)">
+        Messages loaded: <span id="dbc-msg-count" class="chip blue">0</span>
+        &nbsp;Signals: <span id="dbc-sig-count" class="chip blue">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signal table -->
+  <div id="dbc-signal-table-wrap" style="margin:0 16px 16px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+    <table class="frame-table" id="dbc-table">
+      <thead>
+        <tr>
+          <th>Message Name</th><th>ID (hex)</th><th>Signal</th>
+          <th>Start Bit</th><th>Length</th><th>Factor</th><th>Offset</th>
+          <th>Min</th><th>Max</th><th>Unit</th><th>Live Value</th>
+        </tr>
+      </thead>
+      <tbody id="dbc-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═════════════════════ TAB: LOG VIEWER ═════════════════════ -->
+<div class="tab-panel" id="tab-logs">
+  <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button class="btn" onclick="document.getElementById('log-file-input').click()">Open CSV Log</button>
+    <input type="file" id="log-file-input" accept=".csv,.can" style="display:none" onchange="loadLogFile(event)" />
+    <button class="btn" onclick="clearLog()">Clear</button>
+    <input type="text" id="log-filter" placeholder="Filter lines..." style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;width:200px" oninput="filterLog()" />
+    <span id="log-line-count" style="color:var(--text2);font-size:12px"></span>
+  </div>
+  <div class="log-console" id="log-console">
+    <div class="log-line info">// Drop a CSV log file from the SD card to view it here</div>
+    <div class="log-line info">// Or monitor live frames from the Live Data tab</div>
+  </div>
+</div>
+
+<!-- ═════════════════════ TAB: CONFIG ═════════════════════ -->
+<div class="tab-panel" id="tab-config">
+  <div class="panel" style="max-width:700px">
+    <div class="panel-title">Device Configuration</div>
+    <div class="config-grid">
+      <div class="config-row">
+        <label>CAN Bitrate</label>
+        <select id="cfg-bitrate">
+          <option value="125000">125 kbps</option>
+          <option value="250000">250 kbps</option>
+          <option value="500000" selected>500 kbps (OBD2 default)</option>
+          <option value="1000000">1 Mbps</option>
+        </select>
+        <span class="hint">Standard OBD2 is 500 kbps. Some older cars use 250 kbps.</span>
+      </div>
+      <div class="config-row">
+        <label>Session Name</label>
+        <input type="text" id="cfg-session" value="session" maxlength="28" />
+        <span class="hint">Prefix for log filenames on SD card</span>
+      </div>
+      <div class="config-row">
+        <label>Log CSV</label>
+        <select id="cfg-logcsv">
+          <option value="true" selected>Enabled</option>
+          <option value="false">Disabled</option>
+        </select>
+        <span class="hint">Human-readable .csv log</span>
+      </div>
+      <div class="config-row">
+        <label>Log Binary</label>
+        <select id="cfg-logbin">
+          <option value="true" selected>Enabled</option>
+          <option value="false">Disabled</option>
+        </select>
+        <span class="hint">Compact .can binary format</span>
+      </div>
+      <div class="config-row">
+        <label>Stream over Serial</label>
+        <select id="cfg-stream">
+          <option value="true" selected>Enabled</option>
+          <option value="false">Disabled</option>
+        </select>
+        <span class="hint">Send JSON frames to USB Serial (web app)</span>
+      </div>
+      <div class="config-row">
+        <label>CAN ID Filter (comma-separated hex)</label>
+        <input type="text" id="cfg-filter" placeholder="e.g. 0x7E8,0x7DF" />
+        <span class="hint">Leave blank to log all IDs</span>
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px">
+      <button class="btn primary" onclick="applyConfig()">Apply & Save to Device</button>
+      <button class="btn" onclick="loadConfigFromDevice()">↓ Read from Device</button>
+    </div>
+    <div id="config-status" style="margin-top:10px;font-size:12px;color:var(--green)"></div>
+  </div>
+
+  <div class="panel" style="max-width:700px">
+    <div class="panel-title">About This Device</div>
+    <div id="device-info" style="font-family:var(--mono);font-size:12px;color:var(--text2);line-height:2">
+      Connect to device to read status...
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════════════ TAB: SERIAL CONSOLE ═════════════════════ -->
+<div class="tab-panel" id="tab-serial">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:12px;color:var(--text2)">Raw serial console — send JSON commands directly to device</span>
+    <button class="btn ml-auto" onclick="clearConsole()">Clear</button>
+    <button class="btn" onclick="sendCmd({cmd:'status'})">Status</button>
+    <button class="btn" onclick="sendCmd({cmd:'ls'})">List Files</button>
+    <button class="btn success" onclick="sendCmd({cmd:'start'})">▶ Start</button>
+    <button class="btn danger"  onclick="sendCmd({cmd:'stop'})">■ Stop</button>
+  </div>
+  <div id="serial-console"></div>
+  <div class="serial-input-row">
+    <input id="serial-input" type="text" placeholder='{"cmd":"status"}  or any JSON command...'
+           onkeydown="if(event.key==='Enter')sendRawSerial()" />
+    <button class="btn primary" onclick="sendRawSerial()">Send</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ JAVASCRIPT ═══════════════════ -->
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  port: null,
+  reader: null,
+  writer: null,
+  connected: false,
+  frames: [],          // live frame ring buffer
+  maxFrames: 500,
+  frameFilter: '',
+  paused: false,
+  totalFrames: 0,
+  fps: 0,
+  fpsCounter: 0,
+  fpsTimer: null,
+  dbcMessages: {},     // { id: { name, signals: [...] } }
+  mapData: [],         // array of data point objects
+  liveVals: {          // latest decoded OBD2 values
+    rpm: null, speed: null, tps: null, ect: null,
+    maf: null, stft: null, ltft: null, map: null,
+    o2: null, ign: null
+  },
+  mapCanvases: {},
+  logLines: [],
+};
+
+// ── Tab Switching ──────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const panel = document.getElementById('tab-' + name);
+  if (panel) { panel.classList.add('active'); panel.style.display = 'flex'; }
+  if (btn) btn.classList.add('active');
+}
+// Fix tab display on load
+document.querySelectorAll('.tab-panel:not(.active)').forEach(p => p.style.display = 'none');
+
+// ── Web Serial ─────────────────────────────────────────────────────────────
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    alert('Web Serial API not supported.\nPlease use Google Chrome or Microsoft Edge.');
+    return;
+  }
+  try {
+    state.port = await navigator.serial.requestPort();
+    await state.port.open({ baudRate: 115200 });
+    state.connected = true;
+    updateConnStatus(true);
+    startReading();
+    logConsole('sys', '🔌 Connected to serial port');
+    setTimeout(() => sendCmd({ cmd: 'status' }), 500);
+  } catch (e) {
+    if (e.name !== 'NotFoundError') {
+      logConsole('sys', '❌ Connect error: ' + e.message);
+    }
+  }
+}
+
+async function disconnectSerial() {
+  try {
+    state.connected = false;
+    if (state.reader) { await state.reader.cancel(); state.reader = null; }
+    if (state.writer) { state.writer.releaseLock(); state.writer = null; }
+    if (state.port)   { await state.port.close(); state.port = null; }
+    updateConnStatus(false);
+    logConsole('sys', '🔌 Disconnected');
+  } catch (e) { console.error(e); }
+}
+
+function updateConnStatus(connected) {
+  const dot   = document.getElementById('status-dot');
+  const label = document.getElementById('conn-label');
+  const cBtn  = document.getElementById('connect-btn');
+  const dBtn  = document.getElementById('disconnect-btn');
+  dot.className   = 'status-dot' + (connected ? ' connected' : '');
+  label.textContent = connected ? 'Connected' : 'Disconnected';
+  cBtn.style.display = connected ? 'none' : '';
+  dBtn.style.display = connected ? '' : 'none';
+}
+
+// ── Serial Reading ─────────────────────────────────────────────────────────
+let rxBuffer = '';
+async function startReading() {
+  const decoder = new TextDecoderStream();
+  state.port.readable.pipeTo(decoder.writable);
+  state.reader = decoder.readable.getReader();
+
+  try {
+    while (state.connected) {
+      const { value, done } = await state.reader.read();
+      if (done) break;
+      rxBuffer += value;
+      const lines = rxBuffer.split('\n');
+      rxBuffer = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) processRxLine(trimmed);
+      }
+    }
+  } catch (e) {
+    if (state.connected) logConsole('error', 'Read error: ' + e.message);
+  }
+}
+
+function processRxLine(line) {
+  // Try JSON frame
+  if (line.startsWith('{')) {
+    try {
+      const obj = JSON.parse(line);
+      // CAN frame: has "t", "id", "d"
+      if (obj.t !== undefined && obj.id !== undefined) {
+        handleCanFrame(obj);
+        return;
+      }
+      // Status response
+      if (obj.status !== undefined || obj.ok !== undefined) {
+        updateDeviceInfo(obj);
+        logConsole('info', '← ' + line);
+        appendSerial('rx', line);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+  }
+  // Plain text from device
+  logConsole('info', line);
+  appendSerial('rx', line);
+}
+
+async function sendCmd(obj) {
+  const line = JSON.stringify(obj);
+  appendSerial('tx', line);
+  if (!state.connected || !state.port || !state.port.writable) return;
+  try {
+    const encoder = new TextEncoderStream();
+    encoder.readable.pipeTo(state.port.writable);
+    const writer = encoder.writable.getWriter();
+    await writer.write(line + '\n');
+    writer.releaseLock();
+  } catch (e) { logConsole('error', 'Send error: ' + e.message); }
+}
+
+async function sendRawSerial() {
+  const inp = document.getElementById('serial-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  try {
+    const parsed = JSON.parse(text);
+    sendCmd(parsed);
+  } catch {
+    // Send as raw text
+    appendSerial('tx', text);
+    if (state.connected && state.port && state.port.writable) {
+      const enc = new TextEncoderStream();
+      enc.readable.pipeTo(state.port.writable);
+      const w = enc.writable.getWriter();
+      await w.write(text + '\n');
+      w.releaseLock();
+    }
+  }
+}
+
+// ── CAN Frame Handling ────────────────────────────────────────────────────
+function handleCanFrame(frame) {
+  state.totalFrames++;
+  state.fpsCounter++;
+
+  // Update gauge totals
+  document.getElementById('val-total').textContent = state.totalFrames;
+  document.getElementById('frame-count-badge').textContent = state.totalFrames + ' frames';
+
+  // OBD2 decoding (ISO 15765-4 / PID responses on 0x7E8-0x7EF)
+  const id = parseInt(frame.id, 16);
+  if (id >= 0x7E8 && id <= 0x7EF) {
+    decodeObd2Response(frame);
+  }
+
+  // DBC decoding
+  const sigResult = decodeFrameDbc(id, frame.d);
+
+  // Update live frame table
+  if (!state.paused) {
+    addFrameRow(frame, sigResult);
+  }
+
+  // FPS counter
+  if (!state.fpsTimer) {
+    state.fpsTimer = setInterval(() => {
+      state.fps = state.fpsCounter;
+      state.fpsCounter = 0;
+      document.getElementById('val-fps').textContent = state.fps;
+    }, 1000);
+  }
+}
+
+// ── OBD2 PID Decoding (Mode 01 responses) ────────────────────────────────
+function decodeObd2Response(frame) {
+  const bytes = frame.d.split(' ').map(h => parseInt(h, 16));
+  if (bytes.length < 3) return;
+  // bytes[0] = length, bytes[1] = 0x41 (mode 01 response), bytes[2] = PID
+  if (bytes[1] !== 0x41) return;
+  const pid = bytes[2];
+  const A = bytes[3], B = bytes[4], C = bytes[5], D = bytes[6];
+
+  switch (pid) {
+    case 0x0C: // RPM
+      setLive('rpm',   ((A * 256 + B) / 4).toFixed(0), 'val-rpm');
+      break;
+    case 0x0D: // Speed
+      setLive('speed', A, 'val-speed');
+      break;
+    case 0x11: // TPS
+      setLive('tps',   (A * 100 / 255).toFixed(1), 'val-tps');
+      break;
+    case 0x05: // ECT
+      setLive('ect',   (A - 40), 'val-ect');
+      break;
+    case 0x10: // MAF
+      setLive('maf',   ((A * 256 + B) / 100).toFixed(2), 'val-maf');
+      break;
+    case 0x06: // STFT bank 1
+      setLive('stft',  ((A - 128) * 100 / 128).toFixed(1), 'val-stft');
+      break;
+    case 0x07: // LTFT bank 1
+      setLive('ltft',  ((A - 128) * 100 / 128).toFixed(1), 'val-ltft');
+      break;
+    case 0x0B: // MAP
+      setLive('map',   A, 'val-map');
+      break;
+    case 0x14: // O2 B1S1
+      setLive('o2',    (A / 200).toFixed(3), 'val-o2');
+      break;
+    case 0x0E: // Ignition advance
+      setLive('ign',   (A / 2 - 64).toFixed(1), 'val-ign');
+      break;
+  }
+
+  // Record map data point if we have RPM
+  if (state.liveVals.rpm !== null) {
+    const pt = {
+      t:     Date.now(),
+      rpm:   parseFloat(state.liveVals.rpm),
+      tps:   parseFloat(state.liveVals.tps),
+      stft:  parseFloat(state.liveVals.stft),
+      ltft:  parseFloat(state.liveVals.ltft),
+      ign:   parseFloat(state.liveVals.ign),
+      maf:   parseFloat(state.liveVals.maf),
+      map:   parseFloat(state.liveVals.map),
+      speed: parseFloat(state.liveVals.speed),
+      ect:   parseFloat(state.liveVals.ect),
+    };
+    state.mapData.push(pt);
+    if (state.mapData.length > 2000) state.mapData.shift();
+    updateMapCanvases();
+    addMapDataRow(pt);
+  }
+}
+
+function setLive(key, val, elemId) {
+  state.liveVals[key] = val;
+  const el = document.getElementById(elemId);
+  if (el) el.textContent = val;
+}
+
+// ── Frame Table ─────────────────────────────────────────────────────────
+function addFrameRow(frame, sigResult) {
+  const tbody = document.getElementById('frame-tbody');
+  const filter = state.frameFilter;
+  if (filter && !frame.id.toLowerCase().includes(filter.toLowerCase())) return;
+
+  // Keep max rows
+  while (tbody.rows.length >= 200) tbody.deleteRow(tbody.rows.length - 1);
+
+  const tr = document.createElement('tr');
+  tr.className = 'new-frame';
+  tr.innerHTML = `
+    <td>${frame.t}</td>
+    <td style="color:var(--accent);font-weight:600">${frame.id}</td>
+    <td>${frame.ext}</td>
+    <td>${frame.fd}</td>
+    <td>${frame.dlc}</td>
+    <td>${frame.d}</td>
+    <td style="color:var(--green)">${sigResult || ''}</td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+
+  if (!document.getElementById('pause-scroll').checked) {
+    // Table is already newest-first, no scroll needed
+  }
+}
+
+function clearFrameTable() {
+  document.getElementById('frame-tbody').innerHTML = '';
+}
+
+function updateFilter() {
+  state.frameFilter = document.getElementById('filter-input').value;
+}
+
+// ── Map Canvases ─────────────────────────────────────────────────────────
+function setupCanvases() {
+  const canvases = {
+    'map-tps-rpm':   { x: 'rpm', y: 'tps',   xLabel: 'RPM', yLabel: 'TPS %',        color: '#00d4ff' },
+    'map-stft-rpm':  { x: 'rpm', y: 'stft',  xLabel: 'RPM', yLabel: 'STFT %',       color: '#ff6b35' },
+    'map-ign-rpm':   { x: 'rpm', y: 'ign',   xLabel: 'RPM', yLabel: 'Ign Adv °',    color: '#ffd740' },
+    'map-maf-rpm':   { x: 'rpm', y: 'maf',   xLabel: 'RPM', yLabel: 'MAF g/s',      color: '#00e676' },
+    'map-map-rpm':   { x: 'rpm', y: 'map',   xLabel: 'RPM', yLabel: 'MAP kPa',      color: '#e040fb' },
+    'map-speed-rpm': { x: 'rpm', y: 'speed', xLabel: 'RPM', yLabel: 'Speed km/h',   color: '#69f0ae' },
+  };
+  for (const [id, cfg] of Object.entries(canvases)) {
+    state.mapCanvases[id] = cfg;
+  }
+}
+setupCanvases();
+
+function updateMapCanvases() {
+  for (const [id, cfg] of Object.entries(state.mapCanvases)) {
+    const canvas = document.getElementById(id);
+    if (!canvas) continue;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const pad = { top: 20, right: 20, bottom: 40, left: 50 };
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0e1117';
+    ctx.fillRect(0, 0, W, H);
+
+    const pts = state.mapData.filter(p =>
+      p[cfg.x] !== null && !isNaN(p[cfg.x]) &&
+      p[cfg.y] !== null && !isNaN(p[cfg.y])
+    );
+    if (pts.length < 2) {
+      ctx.fillStyle = '#445566';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for data...', W / 2, H / 2);
+      continue;
+    }
+
+    const xs = pts.map(p => p[cfg.x]);
+    const ys = pts.map(p => p[cfg.y]);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs) || 1;
+    const yMin = Math.min(...ys), yMax = Math.max(...ys) || 1;
+
+    const toX = v => pad.left + (v - xMin) / (xMax - xMin) * (W - pad.left - pad.right);
+    const toY = v => H - pad.bottom - (v - yMin) / (yMax - yMin) * (H - pad.top - pad.bottom);
+
+    // Grid
+    ctx.strokeStyle = '#1e2535';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = pad.top + i * (H - pad.top - pad.bottom) / 5;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    }
+
+    // Axes
+    ctx.strokeStyle = '#2a3347';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, H - pad.bottom);
+    ctx.lineTo(W - pad.right, H - pad.bottom);
+    ctx.stroke();
+
+    // Labels
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(cfg.xLabel, W / 2, H - 6);
+    ctx.save();
+    ctx.translate(14, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(cfg.yLabel, 0, 0);
+    ctx.restore();
+
+    // Axis values
+    ctx.textAlign = 'right';
+    ctx.fillText(yMax.toFixed(1), pad.left - 4, pad.top + 4);
+    ctx.fillText(yMin.toFixed(1), pad.left - 4, H - pad.bottom);
+    ctx.textAlign = 'center';
+    ctx.fillText(xMin.toFixed(0), pad.left, H - pad.bottom + 14);
+    ctx.fillText(xMax.toFixed(0), W - pad.right, H - pad.bottom + 14);
+
+    // Data line
+    ctx.strokeStyle = cfg.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = toX(p[cfg.x]), y = toY(p[cfg.y]);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Latest dot
+    const last = pts[pts.length - 1];
+    ctx.fillStyle = cfg.color;
+    ctx.beginPath();
+    ctx.arc(toX(last[cfg.x]), toY(last[cfg.y]), 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function clearMaps() {
+  state.mapData = [];
+  document.getElementById('map-tbody').innerHTML = '';
+  updateMapCanvases();
+}
+
+function exportMaps() {
+  const json = JSON.stringify(state.mapData, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'map_data_' + Date.now() + '.json';
+  a.click();
+}
+
+function addMapDataRow(pt) {
+  const tbody = document.getElementById('map-tbody');
+  while (tbody.rows.length >= 100) tbody.deleteRow(tbody.rows.length - 1);
+  const tr = document.createElement('tr');
+  const n = (v, d=1) => (v === null || isNaN(v)) ? '—' : (+v).toFixed(d);
+  tr.innerHTML = `
+    <td>${tbody.rows.length + 1}</td>
+    <td>${pt.t - state.mapData[0].t}</td>
+    <td>${n(pt.rpm, 0)}</td>
+    <td>${n(pt.tps)}</td>
+    <td>${n(pt.stft)}</td>
+    <td>${n(pt.ltft)}</td>
+    <td>${n(pt.ign)}</td>
+    <td>${n(pt.maf, 2)}</td>
+    <td>${n(pt.map, 0)}</td>
+    <td>${n(pt.speed, 0)}</td>
+    <td>${n(pt.ect, 0)}</td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+}
+
+// ── DBC Decoder ───────────────────────────────────────────────────────────
+function loadDbcFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => parseDbc(e.target.result, file.name);
+  reader.readAsText(file);
+}
+
+function handleDbcDrop(event) {
+  event.preventDefault();
+  document.getElementById('dbc-drop').classList.remove('drag-over');
+  const file = event.dataTransfer.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => parseDbc(e.target.result, file.name);
+  reader.readAsText(file);
+}
+
+function parseDbc(text, filename) {
+  state.dbcMessages = {};
+  let currentMsg = null;
+
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+
+    // Message definition: BO_ <id> <name>: <dlc> <sender>
+    const msgMatch = line.match(/^BO_\s+(\d+)\s+(\w+)\s*:\s*(\d+)/);
+    if (msgMatch) {
+      currentMsg = {
+        id:   parseInt(msgMatch[1]),
+        name: msgMatch[2],
+        dlc:  parseInt(msgMatch[3]),
+        signals: [],
+      };
+      state.dbcMessages[currentMsg.id] = currentMsg;
+      continue;
+    }
+
+    // Signal: SG_ <name> : <startBit>|<len>@<byteOrder><sign> (<factor>,<offset>) [<min>|<max>] "<unit>"
+    const sigMatch = line.match(
+      /^\s*SG_\s+(\w+)\s+:\s+(\d+)\|(\d+)@(\d)([+-])\s+\(([^,]+),([^)]+)\)\s+\[([^|]*)\|([^\]]*)\]\s+"([^"]*)"/
+    );
+    if (sigMatch && currentMsg) {
+      currentMsg.signals.push({
+        name:      sigMatch[1],
+        startBit:  parseInt(sigMatch[2]),
+        length:    parseInt(sigMatch[3]),
+        byteOrder: parseInt(sigMatch[4]), // 1=little-endian, 0=big-endian
+        signed:    sigMatch[5] === '-',
+        factor:    parseFloat(sigMatch[6]),
+        offset:    parseFloat(sigMatch[7]),
+        min:       parseFloat(sigMatch[8]),
+        max:       parseFloat(sigMatch[9]),
+        unit:      sigMatch[10],
+        liveValue: null,
+      });
+    }
+  }
+
+  // Render DBC table
+  const tbody = document.getElementById('dbc-tbody');
+  tbody.innerHTML = '';
+  let msgCount = 0, sigCount = 0;
+
+  for (const msg of Object.values(state.dbcMessages)) {
+    msgCount++;
+    for (const sig of msg.signals) {
+      sigCount++;
+      const tr = document.createElement('tr');
+      tr.id = 'dbc-sig-' + msg.id + '-' + sig.name;
+      tr.innerHTML = `
+        <td style="color:var(--accent)">${msg.name}</td>
+        <td>0x${msg.id.toString(16).toUpperCase()}</td>
+        <td>${sig.name}</td>
+        <td>${sig.startBit}</td>
+        <td>${sig.length}</td>
+        <td>${sig.factor}</td>
+        <td>${sig.offset}</td>
+        <td>${sig.min}</td>
+        <td>${sig.max}</td>
+        <td>${sig.unit}</td>
+        <td id="live-dbc-${msg.id}-${sig.name}" style="color:var(--green)">—</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  document.getElementById('dbc-msg-count').textContent = msgCount;
+  document.getElementById('dbc-sig-count').textContent = sigCount;
+  document.getElementById('dbc-status').textContent = '✅ ' + filename;
+}
+
+function decodeFrameDbc(id, dataHex) {
+  const msg = state.dbcMessages[id];
+  if (!msg || !dataHex) return '';
+  const bytes = dataHex.split(' ').map(h => parseInt(h, 16));
+  const results = [];
+
+  for (const sig of msg.signals) {
+    const raw = extractBits(bytes, sig.startBit, sig.length, sig.byteOrder, sig.signed);
+    const value = raw * sig.factor + sig.offset;
+    sig.liveValue = value;
+    const el = document.getElementById(`live-dbc-${id}-${sig.name}`);
+    if (el) el.textContent = value.toFixed(2) + ' ' + sig.unit;
+    results.push(`${sig.name}=${value.toFixed(2)}${sig.unit}`);
+  }
+  return results.slice(0, 3).join(' | ');
+}
+
+function extractBits(bytes, startBit, length, byteOrder, signed) {
+  let raw = 0n;
+  if (byteOrder === 1) {
+    // Little-endian (Intel byte order)
+    let bit = startBit;
+    for (let i = 0; i < length; i++) {
+      const byteIdx = Math.floor(bit / 8);
+      const bitIdx  = bit % 8;
+      if (byteIdx < bytes.length) {
+        raw |= BigInt((bytes[byteIdx] >> bitIdx) & 1) << BigInt(i);
+      }
+      bit++;
+    }
+  } else {
+    // Big-endian (Motorola byte order)
+    for (let i = 0; i < length; i++) {
+      const byteIdx = Math.floor(startBit / 8);
+      const bitIdx  = 7 - (startBit % 8);
+      if (byteIdx < bytes.length) {
+        raw |= BigInt((bytes[byteIdx] >> bitIdx) & 1) << BigInt(length - 1 - i);
+      }
+      startBit++;
+    }
+  }
+  if (signed && raw >= BigInt(1) << BigInt(length - 1)) {
+    raw -= BigInt(1) << BigInt(length);
+  }
+  return Number(raw);
+}
+
+function clearDbc() {
+  state.dbcMessages = {};
+  document.getElementById('dbc-tbody').innerHTML = '';
+  document.getElementById('dbc-msg-count').textContent = '0';
+  document.getElementById('dbc-sig-count').textContent = '0';
+  document.getElementById('dbc-status').textContent = 'Cleared';
+}
+
+// Built-in OBD2 PID pseudo-DBC
+function loadBuiltinObd2() {
+  const pseudo = `
+BO_ 2015 OBD2_Response: 8 Vector__XXX
+ SG_ RPM : 12|16@1+ (0.25,0) [0|16383.75] "rpm"
+ SG_ Speed : 24|8@1+ (1,0) [0|255] "km/h"
+ SG_ TPS : 32|8@1+ (0.392156862745,0) [0|100] "%"
+ SG_ ECT : 40|8@1+ (1,-40) [-40|215] "degC"
+ SG_ MAF : 48|16@1+ (0.01,0) [0|655.35] "g/s"
+ SG_ STFT_B1 : 64|8@1+ (0.78125,-100) [-100|99.22] "%"
+ SG_ LTFT_B1 : 72|8@1+ (0.78125,-100) [-100|99.22] "%"
+ SG_ MAP : 80|8@1+ (1,0) [0|255] "kPa"
+ SG_ IgnAdv : 88|8@1+ (0.5,-64) [-64|63.5] "deg"
+  `;
+  parseDbc(pseudo, 'Built-in OBD2 PIDs');
+}
+
+// ── Log Viewer ─────────────────────────────────────────────────────────────
+function loadLogFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    state.logLines = e.target.result.split('\n');
+    renderLog(state.logLines);
+    document.getElementById('log-line-count').textContent =
+      state.logLines.length + ' lines';
+  };
+  reader.readAsText(file);
+}
+
+function renderLog(lines) {
+  const con = document.getElementById('log-console');
+  con.innerHTML = lines.map(l => {
+    const cls = l.startsWith('timestamp') ? 'info' : 'can';
+    return `<div class="log-line ${cls}">${escHtml(l)}</div>`;
+  }).join('');
+}
+
+function filterLog() {
+  const q = document.getElementById('log-filter').value.toLowerCase();
+  if (!q) { renderLog(state.logLines); return; }
+  renderLog(state.logLines.filter(l => l.toLowerCase().includes(q)));
+}
+
+function clearLog() {
+  state.logLines = [];
+  document.getElementById('log-console').innerHTML = '';
+  document.getElementById('log-line-count').textContent = '';
+}
+
+// ── Config Tab ─────────────────────────────────────────────────────────────
+function applyConfig() {
+  const cfg = {
+    cmd:     'config',
+    bitrate: parseInt(document.getElementById('cfg-bitrate').value),
+    session: document.getElementById('cfg-session').value,
+    logcsv:  document.getElementById('cfg-logcsv').value === 'true',
+    logbin:  document.getElementById('cfg-logbin').value === 'true',
+    stream:  document.getElementById('cfg-stream').value === 'true',
+  };
+  const filterRaw = document.getElementById('cfg-filter').value;
+  if (filterRaw.trim()) {
+    cfg.filter = filterRaw.split(',').map(s => parseInt(s.trim(), 16)).filter(n => !isNaN(n));
+  }
+  sendCmd(cfg);
+  document.getElementById('config-status').textContent = '✅ Config sent to device';
+  setTimeout(() => document.getElementById('config-status').textContent = '', 3000);
+}
+
+function loadConfigFromDevice() {
+  sendCmd({ cmd: 'status' });
+}
+
+function updateDeviceInfo(obj) {
+  const el = document.getElementById('device-info');
+  if (!el) return;
+  const lines = Object.entries(obj).map(([k, v]) => `${k.padEnd(14)} : ${v}`);
+  el.textContent = lines.join('\n');
+  if (obj.status !== undefined) {
+    document.getElementById('device-chip').textContent =
+      'Device: ' + (obj.status === 'logging' ? '🔴 Logging' : '⏹ Idle');
+  }
+}
+
+// ── Serial Console ─────────────────────────────────────────────────────────
+function logConsole(type, msg) {
+  const con = document.getElementById('log-console');
+  const div = document.createElement('div');
+  div.className = 'log-line ' + type;
+  div.textContent = msg;
+  con.appendChild(div);
+  con.scrollTop = con.scrollHeight;
+}
+
+function appendSerial(dir, text) {
+  const con = document.getElementById('serial-console');
+  const div = document.createElement('div');
+  div.className = 'serial-line ' + (dir === 'tx' ? 'tx' : dir === 'sys' ? 'sys' : 'rx');
+  const prefix = dir === 'tx' ? '→ ' : dir === 'sys' ? '# ' : '← ';
+  div.textContent = prefix + text;
+  con.appendChild(div);
+  con.scrollTop = con.scrollHeight;
+}
+
+function clearConsole() {
+  document.getElementById('serial-console').innerHTML = '';
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+appendSerial('sys', 'OBD2CanLogger Web App ready. Connect device via USB.');
+appendSerial('sys', 'Chrome/Edge required for Web Serial API.');
+</script>
+</body>
+</html>
