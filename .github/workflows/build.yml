@@ -27,6 +27,12 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-mac-${{ hashFiles('desktop/package-lock.json') }}
+
       - name: Install dependencies
         working-directory: desktop
         run: npm ci
@@ -61,6 +67,12 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: '%LOCALAPPDATA%\electron\Cache'
+          key: electron-win-${{ hashFiles('desktop/package-lock.json') }}
 
       - name: Install dependencies
         working-directory: desktop
@@ -109,6 +121,12 @@ jobs:
             xvfb \
             rpm \
             fakeroot
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-linux-${{ hashFiles('desktop/package-lock.json') }}
 
       - name: Install dependencies
         working-directory: desktop
