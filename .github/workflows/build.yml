@@ -45,9 +45,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          # app-builder (Go) appends raw version (no v) to ELECTRON_MIRROR; add v here so URL is correct
-          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/v"
-        run: npx electron-builder --mac --config electron-builder.json
+        run: |
+          ELECTRON_VER=$(node -p "require('./node_modules/electron/package.json').version")
+          ELECTRON_CUSTOM_DIR="v${ELECTRON_VER}" npx electron-builder --mac --config electron-builder.json
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -88,8 +88,10 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/v"
-        run: npx electron-builder --win --config electron-builder.json
+        run: |
+          $env:ELECTRON_VER = node -p "require('./node_modules/electron/package.json').version"
+          $env:ELECTRON_CUSTOM_DIR = "v$env:ELECTRON_VER"
+          npx electron-builder --win --config electron-builder.json
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -146,8 +148,9 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/v"
-        run: npx electron-builder --linux --config electron-builder.json
+        run: |
+          ELECTRON_VER=$(node -p "require('./node_modules/electron/package.json').version")
+          ELECTRON_CUSTOM_DIR="v${ELECTRON_VER}" npx electron-builder --linux --config electron-builder.json
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
