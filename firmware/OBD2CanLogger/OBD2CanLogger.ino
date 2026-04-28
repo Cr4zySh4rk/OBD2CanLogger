@@ -146,9 +146,11 @@ void setup() {
   pinMode(LED_RED_PIN, OUTPUT);
   digitalWrite(LED_RED_PIN, LOW);
 
-  // TinyUSB must initialise before Serial on SAMD51
-  TinyUSBDevice.begin(0);
-
+  // NOTE: Do NOT call TinyUSBDevice.begin() here.
+  // The Adafruit SAMD board package initialises TinyUSB (CDC serial + any MSC
+  // descriptors) automatically before setup() runs. Calling begin() again
+  // re-enumerates the USB device and breaks CDC serial — the board disappears
+  // as a serial port until a double-tap reset into bootloader.
   Serial.begin(115200);
   uint32_t t = millis();
   while (!Serial && millis() - t < 3000) delay(10);
