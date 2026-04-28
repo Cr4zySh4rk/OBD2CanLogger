@@ -3,8 +3,7 @@
   "productName": "OBD2 CAN Logger",
   "copyright": "Copyright © 2024 Cr4zySh4rk",
   "electronDownload": {
-    "mirror": "https://github.com/electron/electron/releases/download/",
-    "customDir": "v{{ version }}"
+    "mirror": "https://github.com/electron/electron/releases/download/v"
   },
   "directories": {
     "output": "dist",
