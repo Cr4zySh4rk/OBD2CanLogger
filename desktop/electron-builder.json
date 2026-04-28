@@ -10,12 +10,6 @@
     "src/**/*",
     "!node_modules"
   ],
-  "extraResources": [
-    {
-      "from": "../webapp/index.html",
-      "to": "app/index.html"
-    }
-  ],
   "icon": "build/icon.png",
   "mac": {
     "category": "public.app-category.utilities",
