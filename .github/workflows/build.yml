@@ -17,7 +17,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   build-mac:
     name: macOS (universal)
-    runs-on: macos-13   # macos-13 is x64, required for universal builds via electron-builder
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
