@@ -62,6 +62,7 @@ struct Config {
   bool      logCSV          = true;
   bool      logBinary       = true;
   bool      streamSerial    = true;
+  bool      rtcEnabled      = false;   // disabled by default — enable if RTC battery fitted
   bool      filterEnabled   = false;
   uint32_t  filterList[32]  = {};
   uint8_t   filterCount     = 0;
@@ -172,22 +173,26 @@ void setup() {
   Serial.println(F("\n=== OBD2CanLogger v1.1 ==="));
   Serial.println(F("Feather M4 CAN | ATSAMD51 | ACANFD | SdFat"));
 
-  // ── RTC init ──
+  // ── RTC init (only if enabled in config) ──
   Wire.begin();
-  if (rtc.begin()) {
-    rtcAvailable = true;
-    if (!rtc.initialized() || rtc.lostPower()) {
-      Serial.println(F("[RTC] Not set — using compile time"));
-      rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  if (gConfig.rtcEnabled) {
+    if (rtc.begin()) {
+      rtcAvailable = true;
+      if (!rtc.initialized() || rtc.lostPower()) {
+        Serial.println(F("[RTC] Not set — using compile time"));
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+      }
+      DateTime now = rtc.now();
+      char buf[48];
+      snprintf(buf, sizeof(buf), "[RTC] %04d-%02d-%02d %02d:%02d:%02d",
+               now.year(), now.month(), now.day(),
+               now.hour(), now.minute(), now.second());
+      Serial.println(buf);
+    } else {
+      Serial.println(F("[RTC] Enabled in config but not found — check wiring"));
     }
-    DateTime now = rtc.now();
-    char buf[32];
-    snprintf(buf, sizeof(buf), "[RTC] %04d-%02d-%02d %02d:%02d:%02d",
-             now.year(), now.month(), now.day(),
-             now.hour(), now.minute(), now.second());
-    Serial.println(buf);
   } else {
-    Serial.println(F("[RTC] Not found — timestamps use millis()"));
+    Serial.println(F("[RTC] Disabled — timestamps use millis()"));
   }
 
   // ── SD init (SdFat) ──
@@ -394,7 +399,7 @@ void processSerialCommand(const String& line) {
     resp["uptime_s"] = (millis() - sessionStartMs) / 1000;
     resp["bitrate"]  = gConfig.canBitrate;
     resp["sd"]       = sdAvailable;
-    resp["rtc"]      = rtcAvailable;
+    resp["rtc"]      = gConfig.rtcEnabled;   // send config state, not hardware state
     serializeJson(resp, Serial);
     Serial.println();
 
@@ -412,6 +417,24 @@ void processSerialCommand(const String& line) {
     if (doc.containsKey("stream"))  { gConfig.streamSerial = doc["stream"].as<bool>();  changed = true; }
     if (doc.containsKey("logcsv"))  { gConfig.logCSV       = doc["logcsv"].as<bool>();  changed = true; }
     if (doc.containsKey("logbin"))  { gConfig.logBinary    = doc["logbin"].as<bool>();  changed = true; }
+    if (doc.containsKey("rtc")) {
+      gConfig.rtcEnabled = doc["rtc"].as<bool>();
+      // Apply immediately: init or de-init RTC without requiring a reboot
+      if (gConfig.rtcEnabled && !rtcAvailable) {
+        if (rtc.begin()) {
+          rtcAvailable = true;
+          if (!rtc.initialized() || rtc.lostPower())
+            rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+          Serial.println(F("[RTC] Enabled and initialised"));
+        } else {
+          Serial.println(F("[RTC] Enabled but not found — check wiring"));
+        }
+      } else if (!gConfig.rtcEnabled) {
+        rtcAvailable = false;
+        Serial.println(F("[RTC] Disabled — timestamps will use millis()"));
+      }
+      changed = true;
+    }
     if (changed && sdAvailable) saveConfig();
     Serial.println(F("{\"ok\":true,\"msg\":\"config updated\"}"));
 
@@ -471,6 +494,7 @@ void loadConfig() {
   if (doc.containsKey("logcsv"))  gConfig.logCSV        = doc["logcsv"];
   if (doc.containsKey("logbin"))  gConfig.logBinary     = doc["logbin"];
   if (doc.containsKey("stream"))  gConfig.streamSerial  = doc["stream"];
+  if (doc.containsKey("rtc"))     gConfig.rtcEnabled    = doc["rtc"];
   if (doc.containsKey("session")) strlcpy(gConfig.sessionName, doc["session"], 32);
 
   if (doc.containsKey("filter") && doc["filter"].is<JsonArray>()) {
@@ -495,6 +519,7 @@ void saveConfig() {
   doc["logcsv"]  = gConfig.logCSV;
   doc["logbin"]  = gConfig.logBinary;
   doc["stream"]  = gConfig.streamSerial;
+  doc["rtc"]     = gConfig.rtcEnabled;
   doc["session"] = gConfig.sessionName;
 
   serializeJsonPretty(doc, f);
