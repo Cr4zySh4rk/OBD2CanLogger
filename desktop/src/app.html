@@ -431,6 +431,14 @@
         <span class="hint">Send JSON frames to this web app</span>
       </div>
       <div class="config-row">
+        <label>RTC (Real-Time Clock)</label>
+        <select id="cfg-rtc">
+          <option value="false" selected>Disabled — use millis() for timestamps</option>
+          <option value="true">Enabled — use PCF8523 RTC for timestamps</option>
+        </select>
+        <span class="hint">Enable only if Adalogger FeatherWing RTC battery is fitted</span>
+      </div>
+      <div class="config-row">
         <label>CAN ID Filter (hex, comma-sep)</label>
         <input type="text" id="cfg-filter" placeholder="e.g. 0x7E8,0x7DF" />
         <span class="hint">Leave blank to log all IDs</span>
@@ -1004,6 +1012,7 @@ function applyConfig() {
     logcsv:  document.getElementById('cfg-logcsv').value === 'true',
     logbin:  document.getElementById('cfg-logbin').value === 'true',
     stream:  document.getElementById('cfg-stream').value === 'true',
+    rtc:     document.getElementById('cfg-rtc').value === 'true',
   };
   const fRaw = document.getElementById('cfg-filter').value.trim();
   if (fRaw) cmd.filter = fRaw.split(',').map(s=>parseInt(s.trim(),16)).filter(n=>!isNaN(n));
@@ -1018,6 +1027,12 @@ function updateDeviceInfo(obj) {
     Object.entries(obj).map(([k,v])=>`${k.padEnd(14)}: ${v}`).join('\n');
   document.getElementById('device-chip').textContent =
     obj.status ? (obj.status === 'logging' ? '🔴 Logging' : '⏹ Idle') : 'Device';
+
+  // Sync RTC dropdown with device state
+  if ('rtc' in obj) {
+    const rtcEnabled = obj.rtc === true || obj.rtc === 'true' || obj.rtc === 1;
+    document.getElementById('cfg-rtc').value = rtcEnabled ? 'true' : 'false';
+  }
 
   // SD card status indicator + enable/disable log buttons
   if ('sd' in obj) {
