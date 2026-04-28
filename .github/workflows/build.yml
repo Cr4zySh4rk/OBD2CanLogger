@@ -1,0 +1,188 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags:     ['v*']          # also triggers on version tags like v1.0.0
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # macOS — universal (Apple Silicon + Intel in one binary)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-mac:
+    name: macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build macOS DMG (universal)
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code-signing is skipped (no Apple cert). App will open via
+          # right-click → Open on first run, or users can allow in Security prefs.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac --config electron-builder.json
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: desktop/dist/*.dmg
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Windows — 64-bit and 32-bit NSIS installers + portable exe
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows (x64 + ia32)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Windows installers
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --config electron-builder.json
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.msi
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Linux — AppImage (portable) + .deb (Debian/Ubuntu)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Linux (x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.0-dev \
+            libnotify-dev libnss3 libxss1 \
+            libxtst6 xvfb rpm
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Linux AppImage + deb
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --config electron-builder.json
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Release — only runs on version tags (v*) or manual dispatch
+  # Collects all artifacts and publishes them as a GitHub Release
+  # ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: [build-mac, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    # Only publish on tag pushes (v1.0.0, v1.2.3, etc.)
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write   # needed to create releases and upload assets
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OBD2 CAN Logger ${{ github.ref_name }}
+          body: |
+            ## OBD2 CAN Logger ${{ github.ref_name }}
+
+            Offline desktop app for OBD2 CAN bus logging, live data visualization, and engine map reconstruction.
+
+            ### Downloads
+
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | 🍎 macOS | `*.dmg` | Universal binary (Apple Silicon + Intel). Right-click → Open on first run. |
+            | 🪟 Windows 64-bit | `*-x64-Setup.exe` | NSIS installer |
+            | 🪟 Windows 32-bit | `*-ia32-Setup.exe` | NSIS installer |
+            | 🪟 Windows portable | `*-portable.exe` | No install needed, run directly |
+            | 🐧 Linux | `*.AppImage` | Make executable (`chmod +x`), run directly |
+            | 🐧 Linux | `*.deb` | Debian/Ubuntu package |
+
+            ### Hardware Required
+            - Adafruit Feather M4 CAN (ATSAMD51)
+            - Adafruit Adalogger FeatherWing
+            - OBD2 cable wired to CANH/CANL
+
+            ### Usage
+            1. Flash the firmware from `firmware/` onto the Feather M4 CAN
+            2. Open this app
+            3. Click **Connect USB** and select the serial port
+            4. Live data and map reconstruction start automatically
+
+            See the [README](https://github.com/Cr4zySh4rk/OBD2CanLogger#readme) for full documentation.
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
