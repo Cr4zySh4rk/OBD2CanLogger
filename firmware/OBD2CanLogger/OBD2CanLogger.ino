@@ -8,14 +8,19 @@
  *
  * Libraries required (install via Arduino Library Manager):
  *   - ACANFD_FeatherM4CAN  (Pierre Molinaro)
- *   - SD                    (Arduino built-in)
- *   - RTClib                (Adafruit)
- *   - ArduinoJson           (Benoit Blanchon) v6+
+ *   - SdFat                (Bill Greiman)  ← use this instead of "SD by Arduino"
+ *   - RTClib               (Adafruit)
+ *   - ArduinoJson          (Benoit Blanchon) v6+
+ *   - Adafruit TinyUSB Library
+ *
+ * NOTE: Do NOT install "SD by Arduino" from the Library Manager.
+ * This sketch uses SdFat directly to avoid library conflicts with TinyUSB.
  *
  * Features:
  *   - Logs ALL CAN frames to SD card (CSV + binary .can format)
  *   - USB Serial config interface (JSON commands)
  *   - Real-time streaming of decoded frames over USB Serial
+ *   - USB Mass Storage mode — mount SD card as a USB drive on host PC
  *   - Configurable: bitrate, log format, filter IDs, session naming
  *   - LED status indicators
  *   - Session file rotation (new file per power-on, RTC timestamp in name)
@@ -25,19 +30,17 @@
 #define CAN0_MESSAGE_RAM_SIZE (0)      // CAN0 not used
 #define CAN1_MESSAGE_RAM_SIZE (2048)   // CAN1 = OBD2 port
 
-// ─── TinyUSB MSC (USB Mass Storage) ─────────────────────────────────────────
-// Must be defined before any USB-related includes.
-// Install "Adafruit TinyUSB Library" via Library Manager.
+// ─── TinyUSB MSC (USB Mass Storage) ──────────────────────────────────────────
+// Must come before any other USB or Serial includes on SAMD51.
 #include <Adafruit_TinyUSB.h>
 
-// ─── Library conflict guard ───────────────────────────────────────────────────
-// The Adafruit SAMD board package ships its own SD library (wraps SdFat).
-// If you have the standalone "SD" library installed in your Sketchbook it will
-// shadow the board package version.  Remove it from Arduino IDE:
-//   Sketch → Include Library → Manage Libraries → "SD by Arduino" → Remove
-// or simply delete ~/Documents/Arduino/libraries/SD/
+// ─── SdFat ────────────────────────────────────────────────────────────────────
+// Use SdFat directly — avoids conflict with "SD by Arduino" library.
+// SdFat ships inside the Adafruit SAMD board package and also as a standalone
+// Library Manager entry "SdFat by Bill Greiman".  Either works.
+#include <SdFat.h>
+
 #include <ACANFD_FeatherM4CAN.h>
-#include <SD.h>
 #include <SPI.h>
 #include <RTClib.h>
 #include <ArduinoJson.h>
@@ -45,16 +48,22 @@
 // ─── Pin Definitions ──────────────────────────────────────────────────────────
 #define SD_CS_PIN       10   // Adalogger FeatherWing SD CS
 #define LED_RED_PIN     13   // Built-in red LED
-#define LED_GREEN_PIN   -1   // Optional external green LED (-1 = not used)
+
+// ─── SdFat instance ──────────────────────────────────────────────────────────
+// SdFat uses its own SPI speed constant.  SD_SCK_MHZ(50) is the max the
+// Adalogger reliably supports over the shared SPI bus.
+SdFat  sd;
+SdFile csvFile;
+SdFile binFile;
 
 // ─── Configuration (overridden by config.json on SD card) ────────────────────
 struct Config {
-  uint32_t  canBitrate      = 500000;   // 500 kbps (standard OBD2)
-  bool      logCSV          = true;     // Log human-readable CSV
-  bool      logBinary       = true;     // Log raw binary .can frames
-  bool      streamSerial    = true;     // Stream frames over USB Serial
-  bool      filterEnabled   = false;    // If true, only log IDs in filterList
-  uint32_t  filterList[32]  = {};       // CAN IDs to pass (when filterEnabled)
+  uint32_t  canBitrate      = 500000;
+  bool      logCSV          = true;
+  bool      logBinary       = true;
+  bool      streamSerial    = true;
+  bool      filterEnabled   = false;
+  uint32_t  filterList[32]  = {};
   uint8_t   filterCount     = 0;
   char      sessionName[32] = "session";
 };
@@ -62,11 +71,6 @@ struct Config {
 Config gConfig;
 
 // ─── OBD2 PID Poller ──────────────────────────────────────────────────────────
-// OBD2 is request/response: we must SEND a query on ID 0x7DF,
-// then the ECU replies on 0x7E8 with the actual data.
-// Without polling, the ECU never broadcasts these values on its own.
-
-// PIDs to cycle through (Mode 01)
 const uint8_t OBD2_PIDS[] = {
   0x0C,  // Engine RPM
   0x0D,  // Vehicle speed
@@ -83,48 +87,41 @@ const uint8_t OBD2_PIDS[] = {
 };
 const uint8_t OBD2_PID_COUNT = sizeof(OBD2_PIDS) / sizeof(OBD2_PIDS[0]);
 
-uint8_t  pidIndex         = 0;       // which PID to request next
-uint32_t lastPidPollMs    = 0;
-uint32_t pidPollIntervalMs = 80;     // ms between each individual PID request
-                                     // 12 PIDs × 80ms ≈ ~1 full cycle per second
+uint8_t  pidIndex          = 0;
+uint32_t lastPidPollMs     = 0;
+uint32_t pidPollIntervalMs = 80;
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 RTC_PCF8523 rtc;
-bool        rtcAvailable    = false;
-
-File        csvFile;
-File        binFile;
-bool        sdAvailable     = false;
-bool        logging         = false;
+bool        rtcAvailable   = false;
+bool        sdAvailable    = false;
+bool        logging        = false;
 
 char        csvFilename[48];
 char        binFilename[48];
 
-uint32_t    frameCount      = 0;
-uint32_t    lastStatusMs    = 0;
-uint32_t    sessionStartMs  = 0;
+uint32_t    frameCount     = 0;
+uint32_t    lastStatusMs   = 0;
+uint32_t    sessionStartMs = 0;
 
 // Binary frame record (fixed 24 bytes per frame)
 struct __attribute__((packed)) BinFrame {
-  uint32_t timestamp_ms;  // millis() since session start
-  uint32_t id;            // CAN ID (bit 31 set = extended)
-  uint8_t  dlc;           // Data length code
-  uint8_t  flags;         // bit0=FD, bit1=BRS, bit2=extended
+  uint32_t timestamp_ms;
+  uint32_t id;
+  uint8_t  dlc;
+  uint8_t  flags;   // bit0=FD, bit1=BRS, bit2=extended
   uint8_t  pad[2];
-  uint8_t  data[8];       // First 8 bytes (truncated if FD > 8)
+  uint8_t  data[8];
 };
 
-// ─── Helper macro: true when frame is a CANFD frame (not classic CAN 2.0B) ───
 #define IS_CANFD(frame) \
   ((frame).type == CANFDMessage::CANFD_WITH_BIT_RATE_SWITCH || \
    (frame).type == CANFDMessage::CANFD_NO_BIT_RATE_SWITCH)
 
 // ─── USB Mass Storage ─────────────────────────────────────────────────────────
-// Adafruit_USBD_MSC wraps the SD card as a USB drive when requested.
 Adafruit_USBD_MSC usb_msc;
 bool mscActive = false;
 
-// MSC callbacks — forward declarations
 int32_t msc_read_cb(uint32_t lba, void* buffer, uint32_t bufsize);
 int32_t msc_write_cb(uint32_t lba, uint8_t* buffer, uint32_t bufsize);
 void    msc_flush_cb(void);
@@ -149,17 +146,15 @@ void setup() {
   pinMode(LED_RED_PIN, OUTPUT);
   digitalWrite(LED_RED_PIN, LOW);
 
-  // TinyUSB must be initialized before Serial on SAMD51
-  // This sets up the USB descriptor stack (CDC serial by default; MSC added on demand)
+  // TinyUSB must initialise before Serial on SAMD51
   TinyUSBDevice.begin(0);
 
   Serial.begin(115200);
-  // Don't block forever waiting for Serial — car may have no PC attached
   uint32_t t = millis();
   while (!Serial && millis() - t < 3000) delay(10);
 
-  Serial.println(F("\n=== OBD2CanLogger v1.0 ==="));
-  Serial.println(F("Feather M4 CAN | ATSAMD51 | ACANFD"));
+  Serial.println(F("\n=== OBD2CanLogger v1.1 ==="));
+  Serial.println(F("Feather M4 CAN | ATSAMD51 | ACANFD | SdFat"));
 
   // ── RTC init ──
   Wire.begin();
@@ -169,10 +164,9 @@ void setup() {
       Serial.println(F("[RTC] Not set — using compile time"));
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
-    Serial.print(F("[RTC] "));
     DateTime now = rtc.now();
     char buf[32];
-    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+    snprintf(buf, sizeof(buf), "[RTC] %04d-%02d-%02d %02d:%02d:%02d",
              now.year(), now.month(), now.day(),
              now.hour(), now.minute(), now.second());
     Serial.println(buf);
@@ -180,10 +174,10 @@ void setup() {
     Serial.println(F("[RTC] Not found — timestamps use millis()"));
   }
 
-  // ── SD init ──
-  if (SD.begin(SD_CS_PIN)) {
+  // ── SD init (SdFat) ──
+  if (sd.begin(SD_CS_PIN, SD_SCK_MHZ(50))) {
     sdAvailable = true;
-    Serial.println(F("[SD] Card mounted"));
+    Serial.println(F("[SD] Card mounted (SdFat)"));
     loadConfig();
   } else {
     Serial.println(F("[SD] No card — logging disabled"));
@@ -193,7 +187,7 @@ void setup() {
   ACANFD_FeatherM4CAN_Settings settings(
     ACANFD_FeatherM4CAN_Settings::CLOCK_48MHz,
     gConfig.canBitrate,
-    DataBitRateFactor::x1   // Classic CAN 2.0B (not FD data phase)
+    DataBitRateFactor::x1
   );
   settings.mModuleMode = ACANFD_FeatherM4CAN_Settings::NORMAL_FD;
 
@@ -208,70 +202,53 @@ void setup() {
     blinkLED(LED_RED_PIN, 10, 100);
   }
 
-  // ── Start logging session ──
-  if (sdAvailable) {
-    startLoggingSession();
-  }
+  if (sdAvailable) startLoggingSession();
 
   sessionStartMs = millis();
-  Serial.println(F("[READY] Logging started. Send JSON commands over Serial."));
+  Serial.println(F("[READY] Send JSON commands over Serial."));
   Serial.println(F("  {\"cmd\":\"status\"}  {\"cmd\":\"stop\"}  {\"cmd\":\"start\"}"));
-  Serial.println(F("  {\"cmd\":\"config\",\"bitrate\":500000}"));
+  Serial.println(F("  {\"cmd\":\"msc\"}  {\"cmd\":\"format\"}"));
 }
 
 // ─── Main Loop ────────────────────────────────────────────────────────────────
 void loop() {
-  // ── Receive CAN frame ──
   CANFDMessage frame;
   if (can1.receiveFD0(frame)) {
     uint32_t ts = millis() - sessionStartMs;
-
     if (!gConfig.filterEnabled || passesFilter(frame.id)) {
       frameCount++;
-
       if (logging) {
         if (gConfig.logCSV)    writeCSVFrame(frame, ts);
         if (gConfig.logBinary) writeBinaryFrame(frame, ts);
       }
-
       if (gConfig.streamSerial && Serial) {
         streamFrameJSON(frame, ts);
       }
     }
   }
 
-  // ── OBD2 PID polling ──
-  // Send next PID request every pidPollIntervalMs milliseconds.
-  // We stagger one PID per interval rather than blasting all at once,
-  // which gives the ECU time to respond before the next request.
   if (millis() - lastPidPollMs >= pidPollIntervalMs) {
     lastPidPollMs = millis();
     pollNextPid();
   }
 
-  // ── Serial command processing ──
   if (Serial.available()) {
     String line = Serial.readStringUntil('\n');
     line.trim();
-    if (line.length() > 0) {
-      processSerialCommand(line);
-    }
+    if (line.length() > 0) processSerialCommand(line);
   }
 
-  // ── Periodic status to Serial ──
   if (millis() - lastStatusMs > 5000) {
     lastStatusMs = millis();
-    // Flush SD periodically to avoid data loss
     if (logging) {
-      if (csvFile) csvFile.flush();
-      if (binFile) binFile.flush();
+      csvFile.sync();
+      binFile.sync();
     }
-    // Heartbeat LED
     digitalWrite(LED_RED_PIN, !digitalRead(LED_RED_PIN));
   }
 }
 
-// ─── Logging Session ─────────────────────────────────────────────────────────
+// ─── Logging Session ──────────────────────────────────────────────────────────
 void startLoggingSession() {
   if (!sdAvailable) return;
 
@@ -285,67 +262,55 @@ void startLoggingSession() {
     snprintf(timestamp, sizeof(timestamp), "t%lu", millis());
   }
 
-  snprintf(csvFilename, sizeof(csvFilename), "/%s_%s.csv",
+  snprintf(csvFilename, sizeof(csvFilename), "%s_%s.csv",
            gConfig.sessionName, timestamp);
-  snprintf(binFilename, sizeof(binFilename), "/%s_%s.can",
+  snprintf(binFilename, sizeof(binFilename), "%s_%s.can",
            gConfig.sessionName, timestamp);
 
   if (gConfig.logCSV) {
-    csvFile = SD.open(csvFilename, FILE_WRITE);
-    if (csvFile) {
+    if (csvFile.open(csvFilename, O_WRONLY | O_CREAT | O_TRUNC)) {
       csvFile.println(F("timestamp_ms,id_hex,id_dec,extended,fd,dlc,data_hex,data_bytes"));
-      csvFile.flush();
-      Serial.print(F("[SD] CSV: "));
-      Serial.println(csvFilename);
+      csvFile.sync();
+      Serial.print(F("[SD] CSV: ")); Serial.println(csvFilename);
     }
   }
 
   if (gConfig.logBinary) {
-    binFile = SD.open(binFilename, FILE_WRITE);
-    if (binFile) {
-      // Write 8-byte magic header: "OBD2CAN\0"
+    if (binFile.open(binFilename, O_WRONLY | O_CREAT | O_TRUNC)) {
       binFile.write((const uint8_t*)"OBD2CAN\x00", 8);
-      binFile.flush();
-      Serial.print(F("[SD] BIN: "));
-      Serial.println(binFilename);
+      binFile.sync();
+      Serial.print(F("[SD] BIN: ")); Serial.println(binFilename);
     }
   }
 
-  logging   = true;
-  frameCount = 0;
+  logging        = true;
+  frameCount     = 0;
   sessionStartMs = millis();
 }
 
 void stopLoggingSession() {
-  if (csvFile) { csvFile.flush(); csvFile.close(); }
-  if (binFile) { binFile.flush(); binFile.close(); }
+  csvFile.sync(); csvFile.close();
+  binFile.sync(); binFile.close();
   logging = false;
-  Serial.print(F("[LOG] Session stopped. Frames logged: "));
+  Serial.print(F("[LOG] Session stopped. Frames: "));
   Serial.println(frameCount);
 }
 
-// ─── Frame Writers ───────────────────────────────────────────────────────────
+// ─── Frame Writers ────────────────────────────────────────────────────────────
 void writeCSVFrame(const CANFDMessage& frame, uint32_t ts) {
-  if (!csvFile) return;
+  if (!csvFile.isOpen()) return;
 
-  csvFile.print(ts);
-  csvFile.print(',');
-
-  // ID in hex
+  char line[80];
   char idHex[12];
   snprintf(idHex, sizeof(idHex), "%08lX", (unsigned long)frame.id);
-  csvFile.print(idHex);
-  csvFile.print(',');
-  csvFile.print(frame.id);
-  csvFile.print(',');
-  csvFile.print(frame.ext ? '1' : '0');
-  csvFile.print(',');
-  csvFile.print(IS_CANFD(frame) ? '1' : '0');
-  csvFile.print(',');
-  csvFile.print(frame.len);
-  csvFile.print(',');
 
-  // Data as hex string
+  csvFile.print(ts);        csvFile.print(',');
+  csvFile.print(idHex);     csvFile.print(',');
+  csvFile.print(frame.id);  csvFile.print(',');
+  csvFile.print(frame.ext ? '1' : '0'); csvFile.print(',');
+  csvFile.print(IS_CANFD(frame) ? '1' : '0'); csvFile.print(',');
+  csvFile.print(frame.len); csvFile.print(',');
+
   uint8_t printLen = (frame.len < 8) ? frame.len : 8;
   for (uint8_t i = 0; i < printLen; i++) {
     char hex[4];
@@ -358,16 +323,14 @@ void writeCSVFrame(const CANFDMessage& frame, uint32_t ts) {
 }
 
 void writeBinaryFrame(const CANFDMessage& frame, uint32_t ts) {
-  if (!binFile) return;
+  if (!binFile.isOpen()) return;
 
   BinFrame bf;
   bf.timestamp_ms = ts;
   bf.id           = frame.id;
   bf.dlc          = (uint8_t)frame.len;
-  bf.flags        = (IS_CANFD(frame) ? 0x01 : 0x00) |
-                    (frame.ext        ? 0x04 : 0x00);
+  bf.flags        = (IS_CANFD(frame) ? 0x01 : 0x00) | (frame.ext ? 0x04 : 0x00);
   bf.pad[0] = 0; bf.pad[1] = 0;
-
   uint8_t copyLen = (frame.len < 8) ? frame.len : 8;
   memset(bf.data, 0, 8);
   memcpy(bf.data, frame.data, copyLen);
@@ -375,13 +338,11 @@ void writeBinaryFrame(const CANFDMessage& frame, uint32_t ts) {
   binFile.write((const uint8_t*)&bf, sizeof(bf));
 }
 
-// ─── Serial Streaming ────────────────────────────────────────────────────────
+// ─── Serial Streaming ─────────────────────────────────────────────────────────
 void streamFrameJSON(const CANFDMessage& frame, uint32_t ts) {
-  // Compact JSON: {"t":12345,"id":"0x7E8","ext":0,"fd":0,"dlc":8,"d":"02 01 00 00 00 00 00 00"}
   Serial.print(F("{\"t\":"));
   Serial.print(ts);
   Serial.print(F(",\"id\":\"0x"));
-
   char idHex[10];
   snprintf(idHex, sizeof(idHex), "%lX", (unsigned long)frame.id);
   Serial.print(idHex);
@@ -392,7 +353,6 @@ void streamFrameJSON(const CANFDMessage& frame, uint32_t ts) {
   Serial.print(F(",\"dlc\":"));
   Serial.print(frame.len);
   Serial.print(F(",\"d\":\""));
-
   uint8_t printLen = (frame.len < 8) ? frame.len : 8;
   for (uint8_t i = 0; i < printLen; i++) {
     char hex[4];
@@ -403,14 +363,10 @@ void streamFrameJSON(const CANFDMessage& frame, uint32_t ts) {
   Serial.println(F("\"}"));
 }
 
-// ─── Serial Command Handler ───────────────────────────────────────────────────
+// ─── Serial Command Handler ────────────────────────────────────────────────────
 void processSerialCommand(const String& line) {
   StaticJsonDocument<256> doc;
-  DeserializationError err = deserializeJson(doc, line);
-  if (err) {
-    // Not JSON — ignore silently
-    return;
-  }
+  if (deserializeJson(doc, line)) return;
 
   const char* cmd = doc["cmd"];
   if (!cmd) return;
@@ -436,95 +392,87 @@ void processSerialCommand(const String& line) {
 
   } else if (strcmp(cmd, "config") == 0) {
     bool changed = false;
-    if (doc.containsKey("bitrate")) {
-      gConfig.canBitrate = doc["bitrate"].as<uint32_t>();
-      changed = true;
-    }
-    if (doc.containsKey("stream")) {
-      gConfig.streamSerial = doc["stream"].as<bool>();
-      changed = true;
-    }
-    if (doc.containsKey("logcsv")) {
-      gConfig.logCSV = doc["logcsv"].as<bool>();
-      changed = true;
-    }
-    if (doc.containsKey("logbin")) {
-      gConfig.logBinary = doc["logbin"].as<bool>();
-      changed = true;
-    }
+    if (doc.containsKey("bitrate")) { gConfig.canBitrate   = doc["bitrate"].as<uint32_t>(); changed = true; }
+    if (doc.containsKey("stream"))  { gConfig.streamSerial = doc["stream"].as<bool>();  changed = true; }
+    if (doc.containsKey("logcsv"))  { gConfig.logCSV       = doc["logcsv"].as<bool>();  changed = true; }
+    if (doc.containsKey("logbin"))  { gConfig.logBinary    = doc["logbin"].as<bool>();  changed = true; }
     if (changed && sdAvailable) saveConfig();
-    Serial.println(F("{\"ok\":true,\"msg\":\"config updated — restart to apply bitrate\"}"));
+    Serial.println(F("{\"ok\":true,\"msg\":\"config updated\"}"));
 
   } else if (strcmp(cmd, "ls") == 0) {
-    // List SD card files
     Serial.println(F("{\"files\":["));
-    File root = SD.open("/");
+    SdFile root, entry;
+    root.open("/");
     bool first = true;
-    while (true) {
-      File entry = root.openNextFile();
-      if (!entry) break;
+    while (entry.openNext(&root, O_RDONLY)) {
+      char name[64];
+      entry.getName(name, sizeof(name));
+      uint32_t sz = entry.fileSize();
+      bool isDir  = entry.isDir();
+      entry.close();
+      if (isDir) continue;
       if (!first) Serial.println(',');
       Serial.print(F("  {\"name\":\""));
-      Serial.print(entry.name());
+      Serial.print(name);
       Serial.print(F("\",\"size\":"));
-      Serial.print(entry.size());
+      Serial.print(sz);
       Serial.print(F("}"));
       first = false;
-      entry.close();
     }
     root.close();
     Serial.println(F("\n]}"));
 
   } else if (strcmp(cmd, "msc") == 0) {
-    // Enter USB Mass Storage mode — SD card mounts as USB drive on host PC
     Serial.println(F("{\"ok\":true,\"cmd\":\"msc\",\"msg\":\"entering USB storage mode\"}"));
-    delay(100);   // let serial flush before USB re-enumeration
+    delay(100);
     enterMscMode();
 
   } else if (strcmp(cmd, "format") == 0) {
-    // Format SD card (FAT32) — erases all log files
     formatSdCard();
   }
 }
 
-// ─── Config Load/Save ────────────────────────────────────────────────────────
+// ─── Config Load/Save ─────────────────────────────────────────────────────────
 void loadConfig() {
-  if (!SD.exists("/config.json")) return;
-
-  File f = SD.open("/config.json", FILE_READ);
-  if (!f) return;
+  SdFile f;
+  if (!f.open("config.json", O_RDONLY)) return;
 
   StaticJsonDocument<512> doc;
-  DeserializationError err = deserializeJson(doc, f);
+  // Read entire file into a buffer
+  uint32_t sz = f.fileSize();
+  if (sz > 480) { f.close(); return; }
+  char buf[481];
+  f.read(buf, sz);
+  buf[sz] = '\0';
   f.close();
-  if (err) {
+
+  if (deserializeJson(doc, buf)) {
     Serial.println(F("[CFG] Parse error — using defaults"));
     return;
   }
 
-  if (doc.containsKey("bitrate"))   gConfig.canBitrate    = doc["bitrate"];
-  if (doc.containsKey("logcsv"))    gConfig.logCSV        = doc["logcsv"];
-  if (doc.containsKey("logbin"))    gConfig.logBinary     = doc["logbin"];
-  if (doc.containsKey("stream"))    gConfig.streamSerial  = doc["stream"];
-  if (doc.containsKey("session"))   strlcpy(gConfig.sessionName, doc["session"], 32);
+  if (doc.containsKey("bitrate")) gConfig.canBitrate   = doc["bitrate"];
+  if (doc.containsKey("logcsv"))  gConfig.logCSV        = doc["logcsv"];
+  if (doc.containsKey("logbin"))  gConfig.logBinary     = doc["logbin"];
+  if (doc.containsKey("stream"))  gConfig.streamSerial  = doc["stream"];
+  if (doc.containsKey("session")) strlcpy(gConfig.sessionName, doc["session"], 32);
 
   if (doc.containsKey("filter") && doc["filter"].is<JsonArray>()) {
     JsonArray arr = doc["filter"].as<JsonArray>();
-    gConfig.filterCount = 0;
+    gConfig.filterCount   = 0;
     gConfig.filterEnabled = (arr.size() > 0);
     for (uint32_t id : arr) {
       if (gConfig.filterCount < 32)
         gConfig.filterList[gConfig.filterCount++] = id;
     }
   }
-
   Serial.println(F("[CFG] Loaded config.json"));
 }
 
 void saveConfig() {
-  SD.remove("/config.json");
-  File f = SD.open("/config.json", FILE_WRITE);
-  if (!f) return;
+  sd.remove("config.json");
+  SdFile f;
+  if (!f.open("config.json", O_WRONLY | O_CREAT | O_TRUNC)) return;
 
   StaticJsonDocument<512> doc;
   doc["bitrate"] = gConfig.canBitrate;
@@ -538,60 +486,42 @@ void saveConfig() {
   Serial.println(F("[CFG] Saved config.json"));
 }
 
-// ─── OBD2 PID Poller ─────────────────────────────────────────────────────────
-// Sends a standard ISO 15765-4 (CAN OBD2) Mode 01 PID request.
-// Format: [0x02, 0x01, PID, 0x00, 0x00, 0x00, 0x00, 0x00]
-//   byte 0: 0x02 = 2 additional bytes follow
-//   byte 1: 0x01 = Mode 01 (show current data)
-//   byte 2: PID number
-//   bytes 3-7: padding
-// Functional broadcast address 0x7DF reaches all ECUs on the bus.
+// ─── OBD2 PID Poller ──────────────────────────────────────────────────────────
 void pollNextPid() {
   CANFDMessage req;
-  req.id   = 0x7DF;           // OBD2 functional broadcast address
-  req.ext  = false;           // standard 11-bit ID
+  req.id   = 0x7DF;
+  req.ext  = false;
   req.type = CANFDMessage::CAN_DATA;
   req.len  = 8;
-
   memset(req.data, 0x00, 8);
-  req.data[0] = 0x02;                      // PCI: 2 bytes follow
-  req.data[1] = 0x01;                      // Mode 01: current data
-  req.data[2] = OBD2_PIDS[pidIndex];       // PID to request
+  req.data[0] = 0x02;
+  req.data[1] = 0x01;
+  req.data[2] = OBD2_PIDS[pidIndex];
 
-  const uint32_t err = can1.tryToSendReturnStatusFD(req);
-  if (err == 0) {
-    // Advance to next PID in the rotation
+  if (can1.tryToSendReturnStatusFD(req) == 0) {
     pidIndex = (pidIndex + 1) % OBD2_PID_COUNT;
   }
-  // If send failed (tx buffer full), we don't advance — retry same PID next time
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 bool passesFilter(uint32_t id) {
-  for (uint8_t i = 0; i < gConfig.filterCount; i++) {
+  for (uint8_t i = 0; i < gConfig.filterCount; i++)
     if (gConfig.filterList[i] == id) return true;
-  }
   return false;
 }
 
 void blinkLED(int pin, int times, int delayMs) {
   if (pin < 0) return;
   for (int i = 0; i < times; i++) {
-    digitalWrite(pin, HIGH);
-    delay(delayMs);
-    digitalWrite(pin, LOW);
-    delay(delayMs);
+    digitalWrite(pin, HIGH); delay(delayMs);
+    digitalWrite(pin, LOW);  delay(delayMs);
   }
 }
 
 // ─── USB Mass Storage Mode ────────────────────────────────────────────────────
-// Stops logging, closes all files, then re-enumerates the USB connection as a
-// Mass Storage Class device so the host OS can browse the SD card directly.
-//
-// Requires: Adafruit TinyUSB Library (install via Library Manager)
-// After the host ejects the drive, the user should press Reset to resume logging.
+// Uses SdFat's SdCard object for raw sector access — fully public API,
+// no dependency on the Arduino SD wrapper at all.
 void enterMscMode() {
-  // 1. Stop any active logging session to flush and close files
   if (logging) stopLoggingSession();
 
   if (!sdAvailable) {
@@ -599,116 +529,62 @@ void enterMscMode() {
     return;
   }
 
-  // 2. Configure the MSC object with SD card geometry.
-  // setCapacity() is only used to populate the USB descriptor (what the host
-  // OS displays as the drive size). TinyUSB performs the actual read/write via
-  // the callbacks below, so the exact count here doesn't need to be perfect.
-  // We probe the card size via raw CMD9 (CSD register) to get the real value;
-  // if that's unavailable we fall back to a 32 GB ceiling which covers all
-  // FAT32 cards supported by this project.
   usb_msc.setID("Adafruit", "SD Card", "1.0");
   usb_msc.setReadWriteCallback(msc_read_cb, msc_write_cb, msc_flush_cb);
-  // Probe block count: walk the FAT volume cluster map via SdFat internals.
-  // SD.vol() is available when the Adafruit SAMD board package SD is used;
-  // fall back to 64M blocks (~32 GB) for the standalone Arduino SD library.
-  uint32_t blockCount = 0;
-#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
-  // Adafruit board package SD wraps SdFat — blocksPerCluster * clusterCount
-  // gives actual capacity without touching any private members.
-  if (SD.vol()) {
-    blockCount = (uint32_t)SD.vol()->blocksPerCluster() *
-                 (uint32_t)SD.vol()->clusterCount();
-  }
-#endif
+
+  // sd.card() on SdFat returns SdCard* which is fully public.
+  uint32_t blockCount = sd.card()->sectorCount();
   if (blockCount == 0) blockCount = 62521344UL; // 32 GB fallback
   usb_msc.setCapacity(blockCount, 512);
   usb_msc.setUnitReady(true);
   usb_msc.begin();
 
   mscActive = true;
-  Serial.println(F("[MSC] SD card mounted as USB drive"));
-
-  // 3. Blink LED to indicate MSC mode
+  Serial.println(F("[MSC] SD card mounted as USB drive. Press Reset to exit."));
   blinkLED(LED_RED_PIN, 3, 150);
 
-  // 4. Spin here — nothing else should run while the host has the drive mounted.
-  // The user must press Reset or power-cycle to exit MSC mode and resume logging.
-  while (mscActive) {
-    // TinyUSB handles all USB traffic in the background via RTOS/interrupt
-    delay(10);
-  }
+  while (mscActive) delay(10);
 }
 
-// MSC read callback — called by TinyUSB to read sectors from the SD card.
-// Uses SdFat's FatVolume::diskRead() which is public on the Adafruit SAMD
-// board package. On the standalone Arduino SD library (which doesn't ship
-// SdFat) raw sector I/O is unavailable — MSC mode won't work in that config,
-// but the sketch will still compile and run for normal CSV/binary logging.
+// SdFat SdCard::readSectors / writeSectors / syncDevice are public in all
+// versions of SdFat (both the standalone library and the board package copy).
 int32_t msc_read_cb(uint32_t lba, void* buffer, uint32_t bufsize) {
-#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
-  uint32_t blocks = bufsize / 512;
-  if (!SD.vol()->diskRead((uint8_t*)buffer, lba, blocks)) return -1;
+  if (!sd.card()->readSectors(lba, (uint8_t*)buffer, bufsize / 512)) return -1;
   return (int32_t)bufsize;
-#else
-  (void)lba; (void)buffer; (void)bufsize;
-  return -1; // MSC not supported with standalone SD library
-#endif
 }
 
-// MSC write callback — called by TinyUSB when the host writes to the drive
 int32_t msc_write_cb(uint32_t lba, uint8_t* buffer, uint32_t bufsize) {
-#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
-  uint32_t blocks = bufsize / 512;
-  if (!SD.vol()->diskWrite((const uint8_t*)buffer, lba, blocks)) return -1;
+  if (!sd.card()->writeSectors(lba, buffer, bufsize / 512)) return -1;
   return (int32_t)bufsize;
-#else
-  (void)lba; (void)buffer; (void)bufsize;
-  return -1;
-#endif
 }
 
-// MSC flush callback — called when the host flushes write cache
 void msc_flush_cb(void) {
-#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
-  SD.vol()->diskSync();
-#endif
+  sd.card()->syncDevice();
 }
 
 // ─── SD Card Format ───────────────────────────────────────────────────────────
-// Stops logging, closes files, then deletes every file on the SD card root
-// and writes a fresh FAT32 volume. After format, a new logging session starts.
-//
-// Note: The Arduino SD library does not expose a low-level format function.
-// We do a "logical format" by removing all files. For a true FAT reformat
-// use SdFat library's SD.format() if available on your platform.
 void formatSdCard() {
   if (!sdAvailable) {
     Serial.println(F("{\"ok\":false,\"cmd\":\"format\",\"msg\":\"no SD card\"}"));
     return;
   }
 
-  // Stop logging and close all open files first
   if (logging) stopLoggingSession();
-  if (csvFile) { csvFile.close(); }
-  if (binFile) { binFile.close(); }
+  csvFile.close();
+  binFile.close();
 
-  Serial.println(F("[FORMAT] Removing all files from SD card…"));
+  Serial.println(F("[FORMAT] Removing all files…"));
 
-  // Remove all files in root directory
-  File root = SD.open("/");
+  SdFile root, entry;
+  root.open("/");
   uint16_t count = 0;
-  while (true) {
-    File entry = root.openNextFile();
-    if (!entry) break;
+  while (entry.openNext(&root, O_RDONLY)) {
     char name[64];
-    strlcpy(name, entry.name(), sizeof(name));
-    bool isDir = entry.isDirectory();
+    entry.getName(name, sizeof(name));
+    bool isDir = entry.isDir();
     entry.close();
     if (!isDir) {
-      // Build full path
-      char fullPath[68];
-      snprintf(fullPath, sizeof(fullPath), "/%s", name);
-      SD.remove(fullPath);
+      sd.remove(name);
       count++;
     }
   }
@@ -716,10 +592,9 @@ void formatSdCard() {
 
   Serial.print(F("[FORMAT] Removed "));
   Serial.print(count);
-  Serial.println(F(" file(s). SD card is now empty."));
+  Serial.println(F(" file(s)."));
   Serial.println(F("{\"ok\":true,\"cmd\":\"format\",\"msg\":\"SD card formatted\"}"));
 
-  // Start a fresh logging session
   delay(200);
   startLoggingSession();
 }
