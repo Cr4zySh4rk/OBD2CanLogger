@@ -76,6 +76,11 @@ struct __attribute__((packed)) BinFrame {
   uint8_t  data[8];       // First 8 bytes (truncated if FD > 8)
 };
 
+// ─── Helper macro: true when frame is a CANFD frame (not classic CAN 2.0B) ───
+#define IS_CANFD(frame) \
+  ((frame).type == CANFDMessage::CANFD_WITH_BIT_RATE_SWITCH || \
+   (frame).type == CANFDMessage::CANFD_NO_BIT_RATE_SWITCH)
+
 // ─── Forward Declarations ─────────────────────────────────────────────────────
 void loadConfig();
 void saveConfig();
@@ -271,7 +276,7 @@ void writeCSVFrame(const CANFDMessage& frame, uint32_t ts) {
   csvFile.print(',');
   csvFile.print(frame.ext ? '1' : '0');
   csvFile.print(',');
-  csvFile.print(frame.isFD ? '1' : '0');
+  csvFile.print(IS_CANFD(frame) ? '1' : '0');
   csvFile.print(',');
   csvFile.print(frame.len);
   csvFile.print(',');
@@ -295,8 +300,8 @@ void writeBinaryFrame(const CANFDMessage& frame, uint32_t ts) {
   bf.timestamp_ms = ts;
   bf.id           = frame.id;
   bf.dlc          = (uint8_t)frame.len;
-  bf.flags        = (frame.isFD ? 0x01 : 0x00) |
-                    (frame.ext  ? 0x04 : 0x00);
+  bf.flags        = (IS_CANFD(frame) ? 0x01 : 0x00) |
+                    (frame.ext        ? 0x04 : 0x00);
   bf.pad[0] = 0; bf.pad[1] = 0;
 
   uint8_t copyLen = (frame.len < 8) ? frame.len : 8;
@@ -319,7 +324,7 @@ void streamFrameJSON(const CANFDMessage& frame, uint32_t ts) {
   Serial.print(F("\",\"ext\":"));
   Serial.print(frame.ext ? 1 : 0);
   Serial.print(F(",\"fd\":"));
-  Serial.print(frame.isFD ? 1 : 0);
+  Serial.print(IS_CANFD(frame) ? 1 : 0);
   Serial.print(F(",\"dlc\":"));
   Serial.print(frame.len);
   Serial.print(F(",\"d\":\""));
