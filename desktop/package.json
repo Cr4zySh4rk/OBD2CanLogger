@@ -5,7 +5,10 @@
   "description": "Offline desktop app for OBD2 CAN logging and engine map reconstruction",
   "homepage": "https://github.com/Cr4zySh4rk/OBD2CanLogger",
   "main": "src/main.js",
-  "author": "Cr4zySh4rk",
+  "author": {
+    "name": "Cr4zySh4rk",
+    "email": "cr4zysh4rk@users.noreply.github.com"
+  },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
