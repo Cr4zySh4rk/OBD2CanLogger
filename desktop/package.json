@@ -14,7 +14,7 @@
     "build:all": "electron-builder --mac --win --linux --config electron-builder.json"
   },
   "devDependencies": {
-    "electron": "^31.7.7",
+    "electron": "^41.3.0",
     "electron-builder": "^24.13.3"
   }
 }
