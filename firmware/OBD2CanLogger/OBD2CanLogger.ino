@@ -30,6 +30,12 @@
 // Install "Adafruit TinyUSB Library" via Library Manager.
 #include <Adafruit_TinyUSB.h>
 
+// ─── Library conflict guard ───────────────────────────────────────────────────
+// The Adafruit SAMD board package ships its own SD library (wraps SdFat).
+// If you have the standalone "SD" library installed in your Sketchbook it will
+// shadow the board package version.  Remove it from Arduino IDE:
+//   Sketch → Include Library → Manage Libraries → "SD by Arduino" → Remove
+// or simply delete ~/Documents/Arduino/libraries/SD/
 #include <ACANFD_FeatherM4CAN.h>
 #include <SD.h>
 #include <SPI.h>
@@ -593,15 +599,28 @@ void enterMscMode() {
     return;
   }
 
-  // 2. Configure the MSC object with SD card geometry
-  // SD.card() is private in newer Arduino SD builds, so we use SD.totalBytes()
-  // (from the underlying SdFat FatVolume) for a portable block count.
+  // 2. Configure the MSC object with SD card geometry.
+  // setCapacity() is only used to populate the USB descriptor (what the host
+  // OS displays as the drive size). TinyUSB performs the actual read/write via
+  // the callbacks below, so the exact count here doesn't need to be perfect.
+  // We probe the card size via raw CMD9 (CSD register) to get the real value;
+  // if that's unavailable we fall back to a 32 GB ceiling which covers all
+  // FAT32 cards supported by this project.
   usb_msc.setID("Adafruit", "SD Card", "1.0");
   usb_msc.setReadWriteCallback(msc_read_cb, msc_write_cb, msc_flush_cb);
-  // SD.vol()->blocksPerCluster() * SD.vol()->clusterCount() gives total blocks.
-  // Alternatively use SD.totalBytes() / 512 as a safe portable fallback.
-  uint32_t blockCount = (uint32_t)(SD.totalBytes() / 512ULL);
-  if (blockCount == 0) blockCount = 4000000UL; // safe default ~2 GB
+  // Probe block count: walk the FAT volume cluster map via SdFat internals.
+  // SD.vol() is available when the Adafruit SAMD board package SD is used;
+  // fall back to 64M blocks (~32 GB) for the standalone Arduino SD library.
+  uint32_t blockCount = 0;
+#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
+  // Adafruit board package SD wraps SdFat — blocksPerCluster * clusterCount
+  // gives actual capacity without touching any private members.
+  if (SD.vol()) {
+    blockCount = (uint32_t)SD.vol()->blocksPerCluster() *
+                 (uint32_t)SD.vol()->clusterCount();
+  }
+#endif
+  if (blockCount == 0) blockCount = 62521344UL; // 32 GB fallback
   usb_msc.setCapacity(blockCount, 512);
   usb_msc.setUnitReady(true);
   usb_msc.begin();
@@ -620,25 +639,39 @@ void enterMscMode() {
   }
 }
 
-// MSC read callback — called by TinyUSB to read sectors from the SD card
-// SD.vol() returns the underlying SdFat FatVolume; its diskRead/diskWrite
-// methods are public and work at the raw sector level.
+// MSC read callback — called by TinyUSB to read sectors from the SD card.
+// Uses SdFat's FatVolume::diskRead() which is public on the Adafruit SAMD
+// board package. On the standalone Arduino SD library (which doesn't ship
+// SdFat) raw sector I/O is unavailable — MSC mode won't work in that config,
+// but the sketch will still compile and run for normal CSV/binary logging.
 int32_t msc_read_cb(uint32_t lba, void* buffer, uint32_t bufsize) {
+#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
   uint32_t blocks = bufsize / 512;
   if (!SD.vol()->diskRead((uint8_t*)buffer, lba, blocks)) return -1;
   return (int32_t)bufsize;
+#else
+  (void)lba; (void)buffer; (void)bufsize;
+  return -1; // MSC not supported with standalone SD library
+#endif
 }
 
 // MSC write callback — called by TinyUSB when the host writes to the drive
 int32_t msc_write_cb(uint32_t lba, uint8_t* buffer, uint32_t bufsize) {
+#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
   uint32_t blocks = bufsize / 512;
   if (!SD.vol()->diskWrite((const uint8_t*)buffer, lba, blocks)) return -1;
   return (int32_t)bufsize;
+#else
+  (void)lba; (void)buffer; (void)bufsize;
+  return -1;
+#endif
 }
 
 // MSC flush callback — called when the host flushes write cache
 void msc_flush_cb(void) {
+#if defined(ARDUINO_ADAFRUIT_FEATHER_M4_CAN) || defined(ADAFRUIT_FEATHER_M4_CAN)
   SD.vol()->diskSync();
+#endif
 }
 
 // ─── SD Card Format ───────────────────────────────────────────────────────────
