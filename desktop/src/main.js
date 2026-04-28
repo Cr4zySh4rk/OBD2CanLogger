@@ -2,7 +2,7 @@
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const fs   = require('fs');
+const fs   = require('fs');  // still used by IPC save/open handlers
 
 // ── Enable Web Serial API (experimental in Electron) ──────────────────────────
 app.commandLine.appendSwitch('enable-experimental-web-platform-features');
@@ -33,10 +33,9 @@ function createWindow() {
   });
 
   // ── Load the app HTML ──────────────────────────────────────────────────────
-  // In production the file is bundled as an extraResource
-  const prodPath = path.join(process.resourcesPath, 'app', 'index.html');
-  const devPath  = path.join(__dirname, '..', '..', 'webapp', 'index.html');
-  const htmlPath = fs.existsSync(prodPath) ? prodPath : devPath;
+  // app.html lives in src/ — bundled directly via the "files" glob in electron-builder.json
+  // __dirname is .../resources/app/src in production, and desktop/src in dev
+  const htmlPath = path.join(__dirname, 'app.html');
 
   mainWindow.loadFile(htmlPath);
 
