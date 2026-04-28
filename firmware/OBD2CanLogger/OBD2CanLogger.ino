@@ -594,11 +594,15 @@ void enterMscMode() {
   }
 
   // 2. Configure the MSC object with SD card geometry
-  // SdFat/SD library exposes sector count via SD.card()->cardSize()
-  // We use a simpler approach: configure and let TinyUSB handle the rest.
+  // SD.card() is private in newer Arduino SD builds, so we use SD.totalBytes()
+  // (from the underlying SdFat FatVolume) for a portable block count.
   usb_msc.setID("Adafruit", "SD Card", "1.0");
   usb_msc.setReadWriteCallback(msc_read_cb, msc_write_cb, msc_flush_cb);
-  usb_msc.setCapacity(SD.card()->cardSize(), 512);
+  // SD.vol()->blocksPerCluster() * SD.vol()->clusterCount() gives total blocks.
+  // Alternatively use SD.totalBytes() / 512 as a safe portable fallback.
+  uint32_t blockCount = (uint32_t)(SD.totalBytes() / 512ULL);
+  if (blockCount == 0) blockCount = 4000000UL; // safe default ~2 GB
+  usb_msc.setCapacity(blockCount, 512);
   usb_msc.setUnitReady(true);
   usb_msc.begin();
 
@@ -617,20 +621,24 @@ void enterMscMode() {
 }
 
 // MSC read callback — called by TinyUSB to read sectors from the SD card
+// SD.vol() returns the underlying SdFat FatVolume; its diskRead/diskWrite
+// methods are public and work at the raw sector level.
 int32_t msc_read_cb(uint32_t lba, void* buffer, uint32_t bufsize) {
-  if (!SD.card()->readBlocks(lba, (uint8_t*)buffer, bufsize / 512)) return -1;
+  uint32_t blocks = bufsize / 512;
+  if (!SD.vol()->diskRead((uint8_t*)buffer, lba, blocks)) return -1;
   return (int32_t)bufsize;
 }
 
 // MSC write callback — called by TinyUSB when the host writes to the drive
 int32_t msc_write_cb(uint32_t lba, uint8_t* buffer, uint32_t bufsize) {
-  if (!SD.card()->writeBlocks(lba, buffer, bufsize / 512)) return -1;
+  uint32_t blocks = bufsize / 512;
+  if (!SD.vol()->diskWrite((const uint8_t*)buffer, lba, blocks)) return -1;
   return (int32_t)bufsize;
 }
 
 // MSC flush callback — called when the host flushes write cache
 void msc_flush_cb(void) {
-  SD.card()->syncDevice();
+  SD.vol()->diskSync();
 }
 
 // ─── SD Card Format ───────────────────────────────────────────────────────────
