@@ -47,7 +47,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
           ELECTRON_VER=$(node -p "require('./node_modules/electron/package.json').version")
-          ELECTRON_CUSTOM_DIR="v${ELECTRON_VER}" npx electron-builder --mac --config electron-builder.json
+          ELECTRON_CUSTOM_DIR="v${ELECTRON_VER}" npx electron-builder --mac --config electron-builder.json --publish never
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -91,7 +91,7 @@ jobs:
         run: |
           $env:ELECTRON_VER = node -p "require('./node_modules/electron/package.json').version"
           $env:ELECTRON_CUSTOM_DIR = "v$env:ELECTRON_VER"
-          npx electron-builder --win --config electron-builder.json
+          npx electron-builder --win --config electron-builder.json --publish never
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -150,7 +150,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ELECTRON_VER=$(node -p "require('./node_modules/electron/package.json').version")
-          ELECTRON_CUSTOM_DIR="v${ELECTRON_VER}" npx electron-builder --linux --config electron-builder.json
+          ELECTRON_CUSTOM_DIR="v${ELECTRON_VER}" npx electron-builder --linux --config electron-builder.json --publish never
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
