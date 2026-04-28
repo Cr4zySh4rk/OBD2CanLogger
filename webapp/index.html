@@ -516,12 +516,18 @@ async function connectSerial() {
 
 async function disconnectSerial() {
   state.connected = false;
-  try { if (state.reader) { await state.reader.cancel(); } } catch(_) {}
+  // Cancel the reader first — this causes the read() promise to resolve with
+  // done:true, the loop exits, and releaseLock() is called in the finally block.
+  // Only then can we safely close the port.
+  try { if (state.reader) await state.reader.cancel(); } catch(_) {}
   state.reader = null;
-  try { if (state.port)   { await state.port.close(); }   } catch(_) {}
+  // Small yield to let the read loop's finally{releaseLock()} run
+  await new Promise(r => setTimeout(r, 50));
+  try { if (state.port) await state.port.close(); } catch(_) {}
   state.port = null;
+  rxBuf = '';   // clear any partial line buffer
   setConnStatus(false);
-  appendSerial('sys', '🔌 Disconnected');
+  appendSerial('sys', '🔌 Disconnected — ready to reconnect');
 }
 
 function setConnStatus(on) {
@@ -533,17 +539,19 @@ function setConnStatus(on) {
 }
 
 // ── Read loop ─────────────────────────────────────────────────────────────────
+// Reads directly from port.readable — no pipeTo() so the lock is cleanly
+// releasable on disconnect, allowing the port to be re-opened later.
 let rxBuf = '';
-async function startReading() {
-  const textDecoder = new TextDecoderStream();
-  const closePromise = state.port.readable.pipeTo(textDecoder.writable);
-  state.reader = textDecoder.readable.getReader();
+const dec = new TextDecoder();
 
+async function startReading() {
+  // Get reader directly — never use pipeTo() if you need clean reconnect
+  state.reader = state.port.readable.getReader();
   try {
     while (state.connected) {
       const { value, done } = await state.reader.read();
       if (done) break;
-      rxBuf += value;
+      rxBuf += dec.decode(value, { stream: true });
       const lines = rxBuf.split('\n');
       rxBuf = lines.pop();
       for (const line of lines) {
@@ -553,6 +561,9 @@ async function startReading() {
     }
   } catch (e) {
     if (state.connected) appendSerial('sys', '⚠ Read error: ' + e.message);
+  } finally {
+    // Always release the lock so the port can be closed and re-opened
+    try { state.reader.releaseLock(); } catch(_) {}
   }
 }
 
