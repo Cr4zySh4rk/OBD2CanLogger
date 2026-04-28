@@ -228,6 +228,7 @@
     <span id="conn-label">Disconnected</span>
     <button class="btn primary" id="connect-btn"    onclick="connectSerial()">Connect USB</button>
     <button class="btn danger"  id="disconnect-btn" onclick="disconnectSerial()" style="display:none">Disconnect</button>
+    <button class="btn" id="msc-btn" onclick="enterStorageMode()" style="display:none" title="Mount SD card as USB drive">💾 SD Storage</button>
     <button class="btn" onclick="sendCmd({cmd:'status'})">⟳ Status</button>
   </div>
 </header>
@@ -440,6 +441,39 @@
     <pre id="device-info" style="font-family:var(--mono);font-size:12px;color:var(--text2);line-height:2;white-space:pre-wrap">
 Connect to device to read status…</pre>
   </div>
+
+  <div class="panel" style="max-width:700px">
+    <div class="panel-title">SD Card Management</div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+
+      <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:600;margin-bottom:4px">USB Storage Mode</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+            Stops logging and mounts the SD card as a USB drive so you can browse, copy,
+            or delete log files directly from your computer. The device disconnects from
+            the web app — reconnect after ejecting the drive.
+          </div>
+          <button class="btn" id="msc-btn2" onclick="enterStorageMode()" style="border-color:var(--accent);color:var(--accent)">
+            💾 Enter USB Storage Mode
+          </button>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border);padding-top:14px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:600;margin-bottom:4px">Format SD Card</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+            ⚠ Permanently erases ALL log files on the SD card and formats it as FAT32.
+            This cannot be undone. Use this when the card is full or to start fresh.
+          </div>
+          <button class="btn danger" onclick="formatSdCard()">🗑 Format SD Card (Erase All)</button>
+        </div>
+      </div>
+
+      <div id="sd-status" style="font-size:12px;color:var(--green);display:none"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════ TAB: SERIAL CONSOLE ═══════════════ -->
@@ -535,7 +569,47 @@ function setConnStatus(on) {
   document.getElementById('conn-label').textContent  = on ? 'Connected' : 'Disconnected';
   document.getElementById('connect-btn').style.display    = on ? 'none' : '';
   document.getElementById('disconnect-btn').style.display = on ? '' : 'none';
+  document.getElementById('msc-btn').style.display         = on ? '' : 'none';
   if (!on) document.getElementById('device-chip').textContent = 'No Device';
+}
+
+// ── SD card: USB Mass Storage mode ───────────────────────────────────────────
+async function enterStorageMode() {
+  if (!state.connected) { alert('Connect to the device first.'); return; }
+  const ok = confirm(
+    'This will stop logging and mount the SD card as a USB drive.\n\n' +
+    'The device will disconnect from the web app.\n' +
+    'Eject the drive from your OS before unplugging or reconnecting.'
+  );
+  if (!ok) return;
+  setSdStatus('Sending storage mode command…', 'var(--yellow)');
+  await sendCmd({ cmd: 'msc' });
+  // Give firmware a moment to process, then disconnect — device will re-enumerate as MSC
+  setTimeout(async () => {
+    await disconnectSerial();
+    setSdStatus('✓ Device is now in USB Storage Mode. Eject the drive when done, then reconnect.', 'var(--green)');
+  }, 800);
+}
+
+// ── SD card: Format ───────────────────────────────────────────────────────────
+async function formatSdCard() {
+  if (!state.connected) { alert('Connect to the device first.'); return; }
+  const ok = confirm(
+    '⚠ WARNING: This will PERMANENTLY ERASE ALL log files on the SD card.\n\n' +
+    'This cannot be undone. Are you sure?'
+  );
+  if (!ok) return;
+  const ok2 = confirm('Are you absolutely sure? All logs will be deleted.');
+  if (!ok2) return;
+  setSdStatus('Formatting SD card… (this may take 10–30 seconds)', 'var(--yellow)');
+  await sendCmd({ cmd: 'format' });
+}
+
+function setSdStatus(msg, color) {
+  const el = document.getElementById('sd-status');
+  el.textContent = msg;
+  el.style.color = color || 'var(--green)';
+  el.style.display = msg ? '' : 'none';
 }
 
 // ── Read loop ─────────────────────────────────────────────────────────────────
@@ -573,6 +647,12 @@ function processRx(line) {
       const obj = JSON.parse(line);
       if ('t' in obj && 'id' in obj) { handleFrame(obj); return; }
       if ('status' in obj || 'ok' in obj) { updateDeviceInfo(obj); }
+      // SD card command responses
+      if (obj.cmd === 'msc')    { /* handled by enterStorageMode timeout */ }
+      if (obj.cmd === 'format') {
+        if (obj.ok) setSdStatus('✓ SD card formatted successfully. New logging session started.', 'var(--green)');
+        else        setSdStatus('✗ Format failed: ' + (obj.msg || 'unknown error'), 'var(--red)');
+      }
     } catch(_) {}
   }
   appendSerial('rx', line);
