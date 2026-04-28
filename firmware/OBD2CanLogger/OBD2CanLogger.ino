@@ -119,6 +119,14 @@ struct __attribute__((packed)) BinFrame {
    (frame).type == CANFDMessage::CANFD_NO_BIT_RATE_SWITCH)
 
 // ─── USB Mass Storage ─────────────────────────────────────────────────────────
+// The MSC interface descriptor must be registered with TinyUSB BEFORE the USB
+// stack enumerates on boot. Adafruit's board package calls the weak function
+// `setupUSB()` (or uses the global constructor order) before setup() runs.
+// We declare the object globally and call usb_msc.begin() inside setup() so
+// it is part of the enumerated descriptor from the start, but keep the unit
+// marked "not ready" until the user requests storage mode.  When they do, we
+// flip the unit to ready and detach/re-attach so the host sees a fresh MSC
+// device.  After storage mode the user must press Reset to resume logging.
 Adafruit_USBD_MSC usb_msc;
 bool mscActive = false;
 
@@ -146,11 +154,17 @@ void setup() {
   pinMode(LED_RED_PIN, OUTPUT);
   digitalWrite(LED_RED_PIN, LOW);
 
-  // NOTE: Do NOT call TinyUSBDevice.begin() here.
-  // The Adafruit SAMD board package initialises TinyUSB (CDC serial + any MSC
-  // descriptors) automatically before setup() runs. Calling begin() again
-  // re-enumerates the USB device and breaks CDC serial — the board disappears
-  // as a serial port until a double-tap reset into bootloader.
+  // ── MSC must be registered before Serial / USB enumeration ──
+  // Configure the MSC object now so its interface descriptor is included in
+  // the USB enumeration that happens when Serial.begin() triggers USB connect.
+  // We set unitReady=false so the host sees the LUN but gets "not ready" —
+  // it won't try to mount anything until enterMscMode() flips it to true.
+  usb_msc.setID("OBD2Logger", "SD Card", "1.0");
+  usb_msc.setReadWriteCallback(msc_read_cb, msc_write_cb, msc_flush_cb);
+  usb_msc.setCapacity(62521344UL, 512); // placeholder — updated in enterMscMode
+  usb_msc.setUnitReady(false);
+  usb_msc.begin();
+
   Serial.begin(115200);
   uint32_t t = millis();
   while (!Serial && millis() - t < 3000) delay(10);
@@ -521,8 +535,15 @@ void blinkLED(int pin, int times, int delayMs) {
 }
 
 // ─── USB Mass Storage Mode ────────────────────────────────────────────────────
-// Uses SdFat's SdCard object for raw sector access — fully public API,
-// no dependency on the Arduino SD wrapper at all.
+// How it works:
+//   1. usb_msc was already begin()-ed in setup() with unitReady=false, so the
+//      MSC interface is already in the USB descriptor.
+//   2. Here we update the real sector count, flip unitReady=true, then call
+//      USBDevice.detach() + USBDevice.attach() to force the host to re-enumerate.
+//   3. The host now sees a CDC+MSC composite device and mounts the SD card.
+//   4. We spin in a blocking loop — the user must press Reset to exit.
+//      (Trying to switch back to serial-only cleanly requires another
+//       detach/attach cycle which would drop any ongoing log data.)
 void enterMscMode() {
   if (logging) stopLoggingSession();
 
@@ -531,21 +552,31 @@ void enterMscMode() {
     return;
   }
 
-  usb_msc.setID("Adafruit", "SD Card", "1.0");
-  usb_msc.setReadWriteCallback(msc_read_cb, msc_write_cb, msc_flush_cb);
-
-  // sd.card() on SdFat returns SdCard* which is fully public.
+  // Update real block count from the card
   uint32_t blockCount = sd.card()->sectorCount();
-  if (blockCount == 0) blockCount = 62521344UL; // 32 GB fallback
+  if (blockCount == 0) blockCount = 62521344UL;
   usb_msc.setCapacity(blockCount, 512);
+
+  // Tell the host the LUN is ready — it will mount on next enumeration
   usb_msc.setUnitReady(true);
-  usb_msc.begin();
+
+  Serial.println(F("[MSC] Re-enumerating USB as storage device…"));
+  Serial.println(F("[MSC] Press Reset on the board to return to serial mode."));
+  Serial.flush();
+  delay(100); // let serial tx drain before detach
+
+  // Detach and re-attach — host re-enumerates, now sees CDC+MSC with unit ready
+  USBDevice.detach();
+  delay(200);
+  USBDevice.attach();
 
   mscActive = true;
-  Serial.println(F("[MSC] SD card mounted as USB drive. Press Reset to exit."));
   blinkLED(LED_RED_PIN, 3, 150);
 
-  while (mscActive) delay(10);
+  // Stay here forever — Reset required to exit MSC mode
+  while (true) {
+    delay(10);
+  }
 }
 
 // SdFat SdCard::readSectors / writeSectors / syncDevice are public in all
