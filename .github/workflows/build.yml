@@ -44,9 +44,9 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code-signing is skipped (no Apple cert). App will open via
-          # right-click → Open on first run, or users can allow in Security prefs.
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          # app-builder (Go) appends raw version (no v) to ELECTRON_MIRROR; add v here so URL is correct
+          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/v"
         run: npx electron-builder --mac --config electron-builder.json
 
       - name: Upload macOS artifact
@@ -88,6 +88,7 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/v"
         run: npx electron-builder --win --config electron-builder.json
 
       - name: Upload Windows artifacts
@@ -145,6 +146,7 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/v"
         run: npx electron-builder --linux --config electron-builder.json
 
       - name: Upload Linux artifacts
