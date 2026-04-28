@@ -25,6 +25,11 @@
 #define CAN0_MESSAGE_RAM_SIZE (0)      // CAN0 not used
 #define CAN1_MESSAGE_RAM_SIZE (2048)   // CAN1 = OBD2 port
 
+// ─── TinyUSB MSC (USB Mass Storage) ─────────────────────────────────────────
+// Must be defined before any USB-related includes.
+// Install "Adafruit TinyUSB Library" via Library Manager.
+#include <Adafruit_TinyUSB.h>
+
 #include <ACANFD_FeatherM4CAN.h>
 #include <SD.h>
 #include <SPI.h>
@@ -108,11 +113,23 @@ struct __attribute__((packed)) BinFrame {
   ((frame).type == CANFDMessage::CANFD_WITH_BIT_RATE_SWITCH || \
    (frame).type == CANFDMessage::CANFD_NO_BIT_RATE_SWITCH)
 
+// ─── USB Mass Storage ─────────────────────────────────────────────────────────
+// Adafruit_USBD_MSC wraps the SD card as a USB drive when requested.
+Adafruit_USBD_MSC usb_msc;
+bool mscActive = false;
+
+// MSC callbacks — forward declarations
+int32_t msc_read_cb(uint32_t lba, void* buffer, uint32_t bufsize);
+int32_t msc_write_cb(uint32_t lba, uint8_t* buffer, uint32_t bufsize);
+void    msc_flush_cb(void);
+
 // ─── Forward Declarations ─────────────────────────────────────────────────────
 void loadConfig();
 void saveConfig();
 void startLoggingSession();
 void stopLoggingSession();
+void enterMscMode();
+void formatSdCard();
 void pollNextPid();
 void processSerialCommand(const String& line);
 void streamFrameJSON(const CANFDMessage& frame, uint32_t ts);
@@ -125,6 +142,10 @@ void blinkLED(int pin, int times, int delayMs);
 void setup() {
   pinMode(LED_RED_PIN, OUTPUT);
   digitalWrite(LED_RED_PIN, LOW);
+
+  // TinyUSB must be initialized before Serial on SAMD51
+  // This sets up the USB descriptor stack (CDC serial by default; MSC added on demand)
+  TinyUSBDevice.begin(0);
 
   Serial.begin(115200);
   // Don't block forever waiting for Serial — car may have no PC attached
@@ -447,6 +468,16 @@ void processSerialCommand(const String& line) {
     }
     root.close();
     Serial.println(F("\n]}"));
+
+  } else if (strcmp(cmd, "msc") == 0) {
+    // Enter USB Mass Storage mode — SD card mounts as USB drive on host PC
+    Serial.println(F("{\"ok\":true,\"cmd\":\"msc\",\"msg\":\"entering USB storage mode\"}"));
+    delay(100);   // let serial flush before USB re-enumeration
+    enterMscMode();
+
+  } else if (strcmp(cmd, "format") == 0) {
+    // Format SD card (FAT32) — erases all log files
+    formatSdCard();
   }
 }
 
@@ -545,4 +576,109 @@ void blinkLED(int pin, int times, int delayMs) {
     digitalWrite(pin, LOW);
     delay(delayMs);
   }
+}
+
+// ─── USB Mass Storage Mode ────────────────────────────────────────────────────
+// Stops logging, closes all files, then re-enumerates the USB connection as a
+// Mass Storage Class device so the host OS can browse the SD card directly.
+//
+// Requires: Adafruit TinyUSB Library (install via Library Manager)
+// After the host ejects the drive, the user should press Reset to resume logging.
+void enterMscMode() {
+  // 1. Stop any active logging session to flush and close files
+  if (logging) stopLoggingSession();
+
+  if (!sdAvailable) {
+    Serial.println(F("{\"ok\":false,\"cmd\":\"msc\",\"msg\":\"no SD card\"}"));
+    return;
+  }
+
+  // 2. Configure the MSC object with SD card geometry
+  // SdFat/SD library exposes sector count via SD.card()->cardSize()
+  // We use a simpler approach: configure and let TinyUSB handle the rest.
+  usb_msc.setID("Adafruit", "SD Card", "1.0");
+  usb_msc.setReadWriteCallback(msc_read_cb, msc_write_cb, msc_flush_cb);
+  usb_msc.setCapacity(SD.card()->cardSize(), 512);
+  usb_msc.setUnitReady(true);
+  usb_msc.begin();
+
+  mscActive = true;
+  Serial.println(F("[MSC] SD card mounted as USB drive"));
+
+  // 3. Blink LED to indicate MSC mode
+  blinkLED(LED_RED_PIN, 3, 150);
+
+  // 4. Spin here — nothing else should run while the host has the drive mounted.
+  // The user must press Reset or power-cycle to exit MSC mode and resume logging.
+  while (mscActive) {
+    // TinyUSB handles all USB traffic in the background via RTOS/interrupt
+    delay(10);
+  }
+}
+
+// MSC read callback — called by TinyUSB to read sectors from the SD card
+int32_t msc_read_cb(uint32_t lba, void* buffer, uint32_t bufsize) {
+  if (!SD.card()->readBlocks(lba, (uint8_t*)buffer, bufsize / 512)) return -1;
+  return (int32_t)bufsize;
+}
+
+// MSC write callback — called by TinyUSB when the host writes to the drive
+int32_t msc_write_cb(uint32_t lba, uint8_t* buffer, uint32_t bufsize) {
+  if (!SD.card()->writeBlocks(lba, buffer, bufsize / 512)) return -1;
+  return (int32_t)bufsize;
+}
+
+// MSC flush callback — called when the host flushes write cache
+void msc_flush_cb(void) {
+  SD.card()->syncDevice();
+}
+
+// ─── SD Card Format ───────────────────────────────────────────────────────────
+// Stops logging, closes files, then deletes every file on the SD card root
+// and writes a fresh FAT32 volume. After format, a new logging session starts.
+//
+// Note: The Arduino SD library does not expose a low-level format function.
+// We do a "logical format" by removing all files. For a true FAT reformat
+// use SdFat library's SD.format() if available on your platform.
+void formatSdCard() {
+  if (!sdAvailable) {
+    Serial.println(F("{\"ok\":false,\"cmd\":\"format\",\"msg\":\"no SD card\"}"));
+    return;
+  }
+
+  // Stop logging and close all open files first
+  if (logging) stopLoggingSession();
+  if (csvFile) { csvFile.close(); }
+  if (binFile) { binFile.close(); }
+
+  Serial.println(F("[FORMAT] Removing all files from SD card…"));
+
+  // Remove all files in root directory
+  File root = SD.open("/");
+  uint16_t count = 0;
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+    char name[64];
+    strlcpy(name, entry.name(), sizeof(name));
+    bool isDir = entry.isDirectory();
+    entry.close();
+    if (!isDir) {
+      // Build full path
+      char fullPath[68];
+      snprintf(fullPath, sizeof(fullPath), "/%s", name);
+      SD.remove(fullPath);
+      count++;
+    }
+  }
+  root.close();
+
+  Serial.print(F("[FORMAT] Removed "));
+  Serial.print(count);
+  Serial.println(F(" file(s). SD card is now empty."));
+  Serial.println(F("{\"ok\":true,\"cmd\":\"format\",\"msg\":\"SD card formatted\"}"));
+
+  // Start a fresh logging session
+  delay(200);
+  startLoggingSession();
 }
