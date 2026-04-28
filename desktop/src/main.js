@@ -39,24 +39,25 @@ function createWindow() {
 
   mainWindow.loadFile(htmlPath);
 
-  // ── Grant serial port permission automatically ─────────────────────────────
-  mainWindow.webContents.session.on('select-serial-port', (event, portList, webContents, callback) => {
-    event.preventDefault();
-    // Return empty string to let the Web Serial API's own picker handle it
-    if (portList && portList.length > 0) {
-      callback(portList[0].portId);
-    } else {
-      callback('');
-    }
-  });
-
+  // ── Grant serial port permissions ────────────────────────────────────────────
+  // Do NOT handle 'select-serial-port' — letting Electron show its own port
+  // picker is more reliable than auto-selecting, which silently fails when the
+  // port list is empty or the wrong port is picked.
+  //
+  // setPermissionCheckHandler:  called synchronously to decide if the API is
+  //   allowed at all for this origin. Return true for serial.
+  // setDevicePermissionHandler: called when the app tries to use a previously
+  //   granted device. Return true to allow re-use without prompting again.
   mainWindow.webContents.session.setPermissionCheckHandler(
-    (webContents, permission) => permission === 'serial'
+    (_wc, permission) => permission === 'serial'
   );
 
-  mainWindow.webContents.session.setDevicePermissionHandler((details) => {
-    return details.deviceType === 'serial';
-  });
+  mainWindow.webContents.session.setDevicePermissionHandler(
+    (details) => details.deviceType === 'serial'
+  );
+
+  // In Electron 20+ the serial chooser is shown by the renderer's
+  // navigator.serial.requestPort() call — no extra main-process wiring needed.
 
   // ── Show window once DOM is ready ─────────────────────────────────────────
   mainWindow.once('ready-to-show', () => {
