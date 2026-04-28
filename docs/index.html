@@ -70,6 +70,9 @@
     .btn.danger:hover  { background: rgba(255,23,68,.15); }
     .btn.success { border-color: var(--green); color: var(--green); }
     .btn.success:hover { background: rgba(0,230,118,.1); }
+    .btn:disabled, .btn[disabled] {
+      opacity: 0.35; cursor: not-allowed; pointer-events: none;
+    }
 
     /* ── Tab Bar ── */
     nav.tabs {
@@ -265,8 +268,12 @@
     <span id="frame-count-badge">0 frames</span>
     <input id="filter-input" type="text" placeholder="Filter by ID: 0x7E8,0x7DF…" oninput="state.frameFilter=this.value" />
     <button class="btn" onclick="document.getElementById('frame-tbody').innerHTML=''">Clear</button>
-    <button class="btn success" onclick="sendCmd({cmd:'start'})">▶ Start Log</button>
-    <button class="btn danger"  onclick="sendCmd({cmd:'stop'})">■ Stop Log</button>
+    <button class="btn success" id="btn-start-log" onclick="sendCmd({cmd:'start'})" disabled title="No SD card detected">▶ Start Log</button>
+    <button class="btn danger"  id="btn-stop-log"  onclick="sendCmd({cmd:'stop'})"  disabled title="No SD card detected">■ Stop Log</button>
+    <span id="sd-indicator" style="font-size:11px;display:flex;align-items:center;gap:5px">
+      <span id="sd-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text2);display:inline-block"></span>
+      <span id="sd-label" style="color:var(--text2)">SD: —</span>
+    </span>
     <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:12px">
       <input type="checkbox" id="pause-chk"> Pause scroll
     </label>
@@ -570,7 +577,19 @@ function setConnStatus(on) {
   document.getElementById('connect-btn').style.display    = on ? 'none' : '';
   document.getElementById('disconnect-btn').style.display = on ? '' : 'none';
   document.getElementById('msc-btn').style.display         = on ? '' : 'none';
-  if (!on) document.getElementById('device-chip').textContent = 'No Device';
+  if (!on) {
+    document.getElementById('device-chip').textContent = 'No Device';
+    // Reset SD indicator to unknown state on disconnect
+    const dot = document.getElementById('sd-dot');
+    dot.style.background = 'var(--text2)';
+    dot.style.boxShadow  = 'none';
+    document.getElementById('sd-label').style.color = 'var(--text2)';
+    document.getElementById('sd-label').textContent = 'SD: —';
+    document.getElementById('btn-start-log').disabled = true;
+    document.getElementById('btn-stop-log').disabled  = true;
+    document.getElementById('btn-start-log').title = 'No SD card detected';
+    document.getElementById('btn-stop-log').title  = 'No SD card detected';
+  }
 }
 
 // ── SD card: USB Mass Storage mode ───────────────────────────────────────────
@@ -999,6 +1018,35 @@ function updateDeviceInfo(obj) {
     Object.entries(obj).map(([k,v])=>`${k.padEnd(14)}: ${v}`).join('\n');
   document.getElementById('device-chip').textContent =
     obj.status ? (obj.status === 'logging' ? '🔴 Logging' : '⏹ Idle') : 'Device';
+
+  // SD card status indicator + enable/disable log buttons
+  if ('sd' in obj) {
+    const sdPresent = obj.sd === true || obj.sd === 'true' || obj.sd === 1;
+    const dot   = document.getElementById('sd-dot');
+    const label = document.getElementById('sd-label');
+    const btnStart = document.getElementById('btn-start-log');
+    const btnStop  = document.getElementById('btn-stop-log');
+
+    if (sdPresent) {
+      dot.style.background   = 'var(--green)';
+      dot.style.boxShadow    = '0 0 6px var(--green)';
+      label.style.color      = 'var(--green)';
+      label.textContent      = 'SD: Ready';
+      btnStart.disabled      = false;
+      btnStop.disabled       = false;
+      btnStart.title         = '';
+      btnStop.title          = '';
+    } else {
+      dot.style.background   = 'var(--red)';
+      dot.style.boxShadow    = '0 0 6px var(--red)';
+      label.style.color      = 'var(--red)';
+      label.textContent      = 'SD: No Card';
+      btnStart.disabled      = true;
+      btnStop.disabled       = true;
+      btnStart.title         = 'No SD card detected — insert a FAT32-formatted card';
+      btnStop.title          = 'No SD card detected';
+    }
+  }
 }
 
 // ── Serial console ────────────────────────────────────────────────────────────
