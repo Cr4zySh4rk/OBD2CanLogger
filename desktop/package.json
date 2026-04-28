@@ -3,6 +3,7 @@
   "productName": "OBD2 CAN Logger",
   "version": "1.0.0",
   "description": "Offline desktop app for OBD2 CAN logging and engine map reconstruction",
+  "homepage": "https://github.com/Cr4zySh4rk/OBD2CanLogger",
   "main": "src/main.js",
   "author": "Cr4zySh4rk",
   "license": "MIT",
