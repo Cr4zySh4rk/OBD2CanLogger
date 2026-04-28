@@ -50,6 +50,33 @@ struct Config {
 
 Config gConfig;
 
+// ─── OBD2 PID Poller ──────────────────────────────────────────────────────────
+// OBD2 is request/response: we must SEND a query on ID 0x7DF,
+// then the ECU replies on 0x7E8 with the actual data.
+// Without polling, the ECU never broadcasts these values on its own.
+
+// PIDs to cycle through (Mode 01)
+const uint8_t OBD2_PIDS[] = {
+  0x0C,  // Engine RPM
+  0x0D,  // Vehicle speed
+  0x11,  // Throttle position
+  0x05,  // Coolant temp
+  0x0E,  // Timing advance (ignition)
+  0x10,  // MAF air flow rate
+  0x0B,  // Intake manifold pressure (MAP)
+  0x06,  // Short term fuel trim – bank 1
+  0x07,  // Long term fuel trim – bank 1
+  0x14,  // O2 sensor B1S1 voltage
+  0x04,  // Calculated engine load
+  0x0F,  // Intake air temperature
+};
+const uint8_t OBD2_PID_COUNT = sizeof(OBD2_PIDS) / sizeof(OBD2_PIDS[0]);
+
+uint8_t  pidIndex         = 0;       // which PID to request next
+uint32_t lastPidPollMs    = 0;
+uint32_t pidPollIntervalMs = 80;     // ms between each individual PID request
+                                     // 12 PIDs × 80ms ≈ ~1 full cycle per second
+
 // ─── Globals ──────────────────────────────────────────────────────────────────
 RTC_PCF8523 rtc;
 bool        rtcAvailable    = false;
@@ -86,6 +113,7 @@ void loadConfig();
 void saveConfig();
 void startLoggingSession();
 void stopLoggingSession();
+void pollNextPid();
 void processSerialCommand(const String& line);
 void streamFrameJSON(const CANFDMessage& frame, uint32_t ts);
 void writeCSVFrame(const CANFDMessage& frame, uint32_t ts);
@@ -183,6 +211,15 @@ void loop() {
         streamFrameJSON(frame, ts);
       }
     }
+  }
+
+  // ── OBD2 PID polling ──
+  // Send next PID request every pidPollIntervalMs milliseconds.
+  // We stagger one PID per interval rather than blasting all at once,
+  // which gives the ECU time to respond before the next request.
+  if (millis() - lastPidPollMs >= pidPollIntervalMs) {
+    lastPidPollMs = millis();
+    pollNextPid();
   }
 
   // ── Serial command processing ──
@@ -462,6 +499,34 @@ void saveConfig() {
   serializeJsonPretty(doc, f);
   f.close();
   Serial.println(F("[CFG] Saved config.json"));
+}
+
+// ─── OBD2 PID Poller ─────────────────────────────────────────────────────────
+// Sends a standard ISO 15765-4 (CAN OBD2) Mode 01 PID request.
+// Format: [0x02, 0x01, PID, 0x00, 0x00, 0x00, 0x00, 0x00]
+//   byte 0: 0x02 = 2 additional bytes follow
+//   byte 1: 0x01 = Mode 01 (show current data)
+//   byte 2: PID number
+//   bytes 3-7: padding
+// Functional broadcast address 0x7DF reaches all ECUs on the bus.
+void pollNextPid() {
+  CANFDMessage req;
+  req.id   = 0x7DF;           // OBD2 functional broadcast address
+  req.ext  = false;           // standard 11-bit ID
+  req.type = CANFDMessage::CAN_DATA;
+  req.len  = 8;
+
+  memset(req.data, 0x00, 8);
+  req.data[0] = 0x02;                      // PCI: 2 bytes follow
+  req.data[1] = 0x01;                      // Mode 01: current data
+  req.data[2] = OBD2_PIDS[pidIndex];       // PID to request
+
+  const uint32_t err = can1.tryToSendReturnStatusFD(req);
+  if (err == 0) {
+    // Advance to next PID in the rotation
+    pidIndex = (pidIndex + 1) % OBD2_PID_COUNT;
+  }
+  // If send failed (tx buffer full), we don't advance — retry same PID next time
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
