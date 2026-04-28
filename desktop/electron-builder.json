@@ -2,9 +2,6 @@
   "appId": "com.cr4zysh4rk.obd2canlogger",
   "productName": "OBD2 CAN Logger",
   "copyright": "Copyright © 2024 Cr4zySh4rk",
-  "electronDownload": {
-    "mirror": "https://github.com/electron/electron/releases/download/v"
-  },
   "directories": {
     "output": "dist",
     "buildResources": "build"
