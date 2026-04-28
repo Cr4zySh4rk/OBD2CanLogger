@@ -70,6 +70,7 @@ Install the following libraries via the Arduino Library Manager:
 | `SD` | Arduino | SD card read/write |
 | `RTClib` | Adafruit | Real-time clock (PCF8523 on Adalogger) |
 | `ArduinoJson` | Benoit Blanchon | v6+ — JSON serial protocol |
+| `Adafruit TinyUSB Library` | Adafruit | USB Mass Storage support for SD card access over USB |
 
 ### Board Setup
 
@@ -88,6 +89,24 @@ Install the following libraries via the Arduino Library Manager:
 - Logs **every CAN frame** to SD
 - Streams decoded frames as JSON over USB Serial at 115200 baud
 - Red LED blinks every 5 seconds as heartbeat
+
+### SD Card Setup
+
+The firmware requires a **FAT32-formatted SD card**. Any standard microSD or SD card up to 32 GB works. Cards larger than 32 GB may be exFAT by default — reformat them to FAT32 before use.
+
+**How to format by OS:**
+
+| OS | Steps |
+|----|-------|
+| **macOS** | Open *Disk Utility* → select your SD card → click *Erase* → Format: **MS-DOS (FAT)** → Scheme: **Master Boot Record** → Erase |
+| **Windows** | Open *File Explorer* → right-click the SD drive → *Format* → File system: **FAT32** → *Start* _(for cards >32 GB use [guiformat](http://ridgecrop.co.uk/index.htm?guiformat.htm))_ |
+| **Linux** | `sudo mkfs.fat -F 32 /dev/sdX1` (replace `/dev/sdX1` with your card's partition) |
+
+Once formatted, insert the card into the Adalogger FeatherWing before powering on the Feather M4 CAN. The firmware will automatically create log files on the next power-up.
+
+> **No card inserted?** The web dashboard's *Start Log* and *Stop Log* buttons will be **disabled** and a red "SD: No Card" indicator will appear in the Live Data toolbar. CAN frames are still streamed live to the browser — only SD logging is unavailable.
+
+> **Filling up?** Use the web app's *Configuration → SD Card Management → Format SD Card* button to erase all logs and start fresh, or click *Enter USB Storage Mode* to mount the card as a USB drive on your computer and manage files directly.
 
 ### SD Card Files
 
@@ -124,6 +143,13 @@ Send commands as JSON terminated by `\n`:
 
 // List files on SD card
 {"cmd":"ls"}
+
+// Enter USB Mass Storage mode — SD card mounts as a drive on the host PC.
+// Press Reset on the Feather to exit MSC mode and resume logging.
+{"cmd":"msc"}
+
+// Format SD card — deletes all log files, starts a fresh logging session.
+{"cmd":"format"}
 ```
 
 The device sends frames as compact JSON:
