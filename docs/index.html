@@ -559,6 +559,38 @@
     <div class="panel"><div class="panel-title">Speed vs RPM (gear est.)</div><canvas id="map-speed-rpm" width="500" height="220"></canvas></div>
   </div>
   <div class="panel">
+    <div class="panel-title"><span class="accent">ECU</span> Map Tables — RPM × Load</div>
+    <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:12px">
+      Reconstructed calibration tables in standard tuning-software layout: <b>RPM breakpoints across,
+      engine load down (high load on top)</b>, one median value per cell. Hover any cell for sample
+      count and range; cells with fewer than 3 samples are dimmed (low confidence).
+      The <b style="color:var(--cyan)">Total Fuel Correction</b> table is the tuner's money map —
+      it shows where the factory fuel table is off: <b style="color:var(--orange)">positive = running
+      lean (ECU adding fuel)</b>, <b style="color:var(--magenta)">negative = rich (ECU pulling fuel)</b>.
+      Corrections beyond ±5 % in a well-hit cell mark a zone worth correcting.
+    </p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <select id="ecu-table-select" onchange="renderEcuTable()">
+        <option value="fuel" selected>Total Fuel Correction — STFT+LTFT (%)</option>
+        <option value="ign">Ignition Advance (°BTDC)</option>
+        <option value="ve">VE Proxy — Air per Rev (mg/rev)</option>
+        <option value="maf">MAF Airflow (g/s)</option>
+        <option value="map">Intake MAP (kPa)</option>
+        <option value="stft">Short-Term Fuel Trim (%)</option>
+        <option value="ltft">Long-Term Fuel Trim (%)</option>
+        <option value="tps">Throttle Position (%)</option>
+      </select>
+      <button class="btn primary" onclick="exportEcuTableCsv()">⬇ Download CSV</button>
+      <button class="btn" onclick="exportAllEcuTables()">⬇ Download All (CSV)</button>
+      <span id="ecu-table-fill" style="font-size:12px;color:var(--text2)"></span>
+    </div>
+    <div id="ecu-table-wrap" style="overflow:auto">
+      <div style="color:var(--text2);font-size:13px">Waiting for data — connect or hit 🎮 Demo, then drive.</div>
+    </div>
+    <div id="ecu-table-legend" style="display:none;margin-top:10px;align-items:center;gap:10px;font-size:11px;color:var(--text2)"></div>
+  </div>
+
+  <div class="panel">
     <div class="panel-title">Captured Data Points</div>
     <div style="overflow:auto;max-height:200px">
       <table class="frame-table">
@@ -1754,12 +1786,14 @@ function recordMapPoint() {
   const pt = {
     t: Date.now(), rpm: +v.rpm, tps: +v.tps, stft: +v.stft,
     ltft: +v.ltft, ign: +v.ign, maf: +v.maf, map: +v.map,
-    speed: +v.speed, ect: +v.ect,
+    speed: +v.speed, ect: +v.ect, load: +v.load,
   };
   state.mapData.push(pt);
+  ecuAccumulate(pt);                     // ECU tables keep every sample (binned, unbounded)
   if (state.mapData.length > 2000) state.mapData.shift();
   drawMaps();
   addMapRow(pt);
+  scheduleEcuTableRender();
 }
 
 // ── Frame table ──
@@ -1784,12 +1818,16 @@ function addFrameRow(f, sig) {
 
 // ── Map canvases ──
 const MAP_CFG = {
-  'map-tps-rpm':   { x:'rpm', y:'tps',   xl:'RPM', yl:'TPS %',     color:'#00eaff' },
-  'map-stft-rpm':  { x:'rpm', y:'stft',  xl:'RPM', yl:'STFT %',    color:'#ff9d00' },
-  'map-ign-rpm':   { x:'rpm', y:'ign',   xl:'RPM', yl:'Ign Adv°',  color:'#ffd166' },
-  'map-maf-rpm':   { x:'rpm', y:'maf',   xl:'RPM', yl:'MAF g/s',   color:'#2bff88' },
-  'map-map-rpm':   { x:'rpm', y:'map',   xl:'RPM', yl:'MAP kPa',   color:'#b44cff' },
-  'map-speed-rpm': { x:'rpm', y:'speed', xl:'RPM', yl:'Speed km/h',color:'#ff2d78' },
+  // TPS and MAP depend on driver input, not RPM alone (idle 0 % and WOT 90 %
+  // occur at the same revs) — an averaged trend would zigzag, so scatter only.
+  'map-tps-rpm':   { x:'rpm', y:'tps',   xl:'RPM', yl:'TPS %',     color:'#00eaff', trend:false },
+  'map-stft-rpm':  { x:'rpm', y:'stft',  xl:'RPM', yl:'STFT %',    color:'#ff9d00', trend:true  },
+  'map-ign-rpm':   { x:'rpm', y:'ign',   xl:'RPM', yl:'Ign Adv°',  color:'#ffd166', trend:true  },
+  'map-maf-rpm':   { x:'rpm', y:'maf',   xl:'RPM', yl:'MAF g/s',   color:'#2bff88', trend:true  },
+  'map-map-rpm':   { x:'rpm', y:'map',   xl:'RPM', yl:'MAP kPa',   color:'#b44cff', trend:false },
+  // speed/rpm spans multiple gears — an averaged trend line would be meaningless,
+  // so it renders as scatter only (each gear shows up as its own straight band)
+  'map-speed-rpm': { x:'rpm', y:'speed', xl:'RPM', yl:'Speed km/h',color:'#ff2d78', trend:false },
 };
 
 function drawMaps() {
@@ -1832,17 +1870,55 @@ function drawMaps() {
     ctx.fillText(xMax.toFixed(0), W-p.r, H-p.b+14);
     ctx.save(); ctx.translate(12,H/2); ctx.rotate(-Math.PI/2);
     ctx.fillText(cfg.yl, 0, 0); ctx.restore();
-    ctx.strokeStyle = cfg.color; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    pts.forEach((d,i) => i===0 ? ctx.moveTo(tx(d[cfg.x]),ty(d[cfg.y])) : ctx.lineTo(tx(d[cfg.x]),ty(d[cfg.y])));
-    ctx.stroke();
+
+    // ── scatter cloud ──
+    // Data points arrive asynchronously (each PID at its own rate), so
+    // connecting them in time order draws garbage. Plot the cloud instead…
+    ctx.fillStyle = cfg.color;
+    ctx.globalAlpha = 0.28;
+    for (const d of pts) {
+      const x = tx(d[cfg.x]), y = ty(d[cfg.y]);
+      ctx.fillRect(x - 1.25, y - 1.25, 2.5, 2.5);
+    }
+    ctx.globalAlpha = 1;
+
+    // ── …and overlay a binned median trend line (the reconstructed map) ──
+    if (cfg.trend) {
+      const BINS = 26;
+      const bins = Array.from({ length: BINS }, () => []);
+      for (const d of pts) {
+        const bi = Math.min(BINS - 1, Math.floor((d[cfg.x] - xMin) / (xMax - xMin) * BINS));
+        bins[bi].push(d[cfg.y]);
+      }
+      const trend = [];
+      for (let i = 0; i < BINS; i++) {
+        if (bins[i].length < 2) continue;              // need a few samples per bin
+        bins[i].sort((a, b) => a - b);
+        const med = bins[i][Math.floor(bins[i].length / 2)];
+        trend.push({ x: xMin + (i + 0.5) / BINS * (xMax - xMin), y: med });
+      }
+      if (trend.length >= 2) {
+        ctx.save();
+        ctx.strokeStyle = cfg.color; ctx.lineWidth = 2.5;
+        ctx.shadowColor = cfg.color; ctx.shadowBlur = 8;
+        ctx.beginPath();
+        trend.forEach((d, i) => i === 0 ? ctx.moveTo(tx(d.x), ty(d.y)) : ctx.lineTo(tx(d.x), ty(d.y)));
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // latest sample marker
     const last = pts[pts.length-1];
     ctx.fillStyle = cfg.color; ctx.beginPath();
     ctx.arc(tx(last[cfg.x]), ty(last[cfg.y]), 4, 0, Math.PI*2); ctx.fill();
   }
 }
 
-function clearMaps() { state.mapData=[]; document.getElementById('map-tbody').innerHTML=''; drawMaps(); }
+function clearMaps() {
+  state.mapData=[]; document.getElementById('map-tbody').innerHTML='';
+  ecuReset(); drawMaps(); renderEcuTable();
+}
 function exportMaps() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(state.mapData,null,2)],{type:'application/json'}));
@@ -1861,6 +1937,174 @@ function addMapRow(pt) {
     <td>${n(pt.map,0)}</td><td>${n(pt.speed,0)}</td><td>${n(pt.ect,0)}</td>`;
   tbody.insertBefore(tr, tbody.firstChild);
 }
+
+// ════════════════════════════ ECU MAP TABLES ════════════════════════════════
+// TunerStudio-style RPM × Load tables. Every sample lands in a cell; cells keep
+// a bounded reservoir for median + count + range, unbounded across the session.
+const ECU = {
+  RPM_MIN: 500, RPM_MAX: 7500, NC: 14,     // 14 RPM cols, 500-rpm wide
+  NL: 8,                                    // 8 load rows, 12.5 % each
+  DEFS: {
+    fuel: { label: 'Total Fuel Correction', unit: '%',      dp: 1, diverging: true,
+            calc: pt => (isNaN(pt.stft) || isNaN(pt.ltft)) ? NaN : pt.stft + pt.ltft },
+    ign:  { label: 'Ignition Advance',      unit: '°BTDC',  dp: 1, calc: pt => pt.ign },
+    ve:   { label: 'VE Proxy — Air per Rev', unit: 'mg/rev', dp: 0,
+            calc: pt => (isNaN(pt.maf) || !pt.rpm) ? NaN : pt.maf * 60000 / pt.rpm },
+    maf:  { label: 'MAF Airflow',           unit: 'g/s',    dp: 1, calc: pt => pt.maf },
+    map:  { label: 'Intake MAP',            unit: 'kPa',    dp: 0, calc: pt => pt.map },
+    stft: { label: 'Short-Term Fuel Trim',  unit: '%',      dp: 1, diverging: true, calc: pt => pt.stft },
+    ltft: { label: 'Long-Term Fuel Trim',   unit: '%',      dp: 1, diverging: true, calc: pt => pt.ltft },
+    tps:  { label: 'Throttle Position',     unit: '%',      dp: 1, calc: pt => pt.tps },
+  },
+  bins: {},
+};
+function ecuReset() {
+  for (const k of Object.keys(ECU.DEFS))
+    ECU.bins[k] = Array.from({ length: ECU.NL }, () =>
+      Array.from({ length: ECU.NC }, () => ({ n: 0, vals: [], min: Infinity, max: -Infinity })));
+}
+ecuReset();
+
+function ecuAccumulate(pt) {
+  if (isNaN(pt.rpm) || isNaN(pt.load)) return;
+  if (pt.rpm < ECU.RPM_MIN || pt.rpm > ECU.RPM_MAX) return;
+  const ci = Math.min(ECU.NC - 1, Math.floor((pt.rpm - ECU.RPM_MIN) / (ECU.RPM_MAX - ECU.RPM_MIN) * ECU.NC));
+  const li = Math.min(ECU.NL - 1, Math.floor(pt.load / 100 * ECU.NL));
+  for (const [k, def] of Object.entries(ECU.DEFS)) {
+    const v = def.calc(pt);
+    if (isNaN(v)) continue;
+    const cell = ECU.bins[k][li][ci];
+    cell.n++;
+    cell.min = Math.min(cell.min, v);
+    cell.max = Math.max(cell.max, v);
+    if (cell.vals.length < 41) cell.vals.push(v);
+    else cell.vals[Math.floor(Math.random() * 41)] = v;   // reservoir sample
+  }
+}
+
+function ecuCellStats(cell) {
+  if (!cell.n) return null;
+  const s = [...cell.vals].sort((a, b) => a - b);
+  return { med: s[Math.floor(s.length / 2)], n: cell.n, min: cell.min, max: cell.max };
+}
+
+const ecuRpmLabel  = ci => Math.round(ECU.RPM_MIN + (ci + 0.5) * (ECU.RPM_MAX - ECU.RPM_MIN) / ECU.NC);
+const ecuLoadLabel = li => Math.round((li + 0.5) * 100 / ECU.NL);
+
+// Heat colors. Normal tables: cold blue → hot red (VE-table style).
+// Diverging tables (fuel trims): magenta (rich) ← dark ~0 → orange (lean).
+function ecuCellColor(v, lo, hi, diverging) {
+  if (diverging) {
+    const m = Math.max(Math.abs(lo), Math.abs(hi), 5);
+    const f = Math.max(-1, Math.min(1, v / m));
+    return f >= 0 ? `hsla(35, 95%, 50%, ${0.12 + 0.5 * f})`
+                  : `hsla(330, 90%, 55%, ${0.12 - 0.5 * f})`;
+  }
+  const f = hi === lo ? 0.5 : (v - lo) / (hi - lo);
+  return `hsla(${210 - 210 * f}, 85%, 48%, ${0.18 + 0.42 * f})`;
+}
+
+let ecuRenderQueued = 0;
+function scheduleEcuTableRender() {
+  const now = Date.now();
+  if (now - ecuRenderQueued < 1200) return;                       // throttle
+  if (!document.getElementById('tab-maps').classList.contains('active')) return;
+  ecuRenderQueued = now;
+  renderEcuTable();
+}
+
+function renderEcuTable() {
+  const key = document.getElementById('ecu-table-select').value;
+  const def = ECU.DEFS[key];
+  const grid = ECU.bins[key];
+
+  // collect stats + global range
+  let lo = Infinity, hi = -Infinity, filled = 0;
+  const stats = grid.map(row => row.map(cell => {
+    const s = ecuCellStats(cell);
+    if (s) { lo = Math.min(lo, s.med); hi = Math.max(hi, s.med); filled++; }
+    return s;
+  }));
+
+  const wrap = document.getElementById('ecu-table-wrap');
+  if (!filled) {
+    wrap.innerHTML = '<div style="color:var(--text2);font-size:13px">No samples yet in the RPM/load window — drive (or run Demo) to fill cells.</div>';
+    return;
+  }
+
+  let h = '<table style="border-collapse:collapse;font-family:var(--mono);font-size:12px;min-width:760px">';
+  // header row: RPM breakpoints
+  h += '<tr><th style="padding:5px 8px;color:var(--text2);font-size:10px;letter-spacing:1px">LOAD % ╲ RPM</th>';
+  for (let ci = 0; ci < ECU.NC; ci++)
+    h += `<th style="padding:5px 6px;color:var(--cyan);font-weight:700;border-bottom:1px solid var(--border)">${ecuRpmLabel(ci)}</th>`;
+  h += '</tr>';
+  // rows: HIGH load at the top, like tuning software
+  for (let li = ECU.NL - 1; li >= 0; li--) {
+    h += `<tr><th style="padding:4px 8px;color:var(--magenta);font-weight:700;text-align:right;border-right:1px solid var(--border)">${ecuLoadLabel(li)}</th>`;
+    for (let ci = 0; ci < ECU.NC; ci++) {
+      const s = stats[li][ci];
+      if (!s) {
+        h += '<td style="padding:4px 6px;text-align:center;color:#2a3854;border:1px solid rgba(29,40,67,.35)">·</td>';
+      } else {
+        const lowConf = s.n < 3;
+        const bg = ecuCellColor(s.med, lo, hi, def.diverging);
+        h += `<td title="${s.n} sample${s.n>1?'s':''} · range ${s.min.toFixed(def.dp)} to ${s.max.toFixed(def.dp)} ${def.unit}"
+               style="padding:4px 6px;text-align:center;border:1px solid rgba(29,40,67,.5);background:${bg};
+                      color:${lowConf ? 'var(--text2)' : 'var(--text)'};${lowConf ? 'opacity:.55;font-style:italic;' : 'font-weight:600;'}">${s.med.toFixed(def.dp)}</td>`;
+      }
+    }
+    h += '</tr>';
+  }
+  h += '</table>';
+  wrap.innerHTML = h;
+
+  document.getElementById('ecu-table-fill').textContent =
+    `${def.label} (${def.unit}) — ${filled}/${ECU.NC * ECU.NL} cells hit (${Math.round(filled / (ECU.NC * ECU.NL) * 100)} % coverage)`;
+
+  const legend = document.getElementById('ecu-table-legend');
+  legend.style.display = 'flex';
+  legend.innerHTML = def.diverging
+    ? `<span style="width:14px;height:14px;background:hsla(330,90%,55%,.6);display:inline-block"></span> rich (negative)
+       <span style="width:14px;height:14px;background:#0d1322;border:1px solid var(--border);display:inline-block"></span> ~0
+       <span style="width:14px;height:14px;background:hsla(35,95%,50%,.6);display:inline-block"></span> lean (positive)
+       <span style="margin-left:14px">italic = &lt;3 samples (low confidence) · hover cells for sample count &amp; range</span>`
+    : `<span style="width:14px;height:14px;background:hsla(210,85%,48%,.4);display:inline-block"></span> ${lo.toFixed(def.dp)} ${def.unit}
+       <span style="width:80px;height:14px;background:linear-gradient(90deg,hsla(210,85%,48%,.4),hsla(105,85%,48%,.5),hsla(0,85%,48%,.6));display:inline-block"></span>
+       <span style="width:14px;height:14px;background:hsla(0,85%,48%,.6);display:inline-block"></span> ${hi.toFixed(def.dp)} ${def.unit}
+       <span style="margin-left:14px">italic = &lt;3 samples (low confidence) · hover cells for sample count &amp; range</span>`;
+}
+
+function ecuTableToCsv(key) {
+  const def = ECU.DEFS[key];
+  const grid = ECU.bins[key];
+  let csv = `"${def.label} (${def.unit}) — reconstructed by OBD2//REDLINE ${new Date().toISOString()}"\n`;
+  csv += '"LOAD%\\RPM",' + Array.from({ length: ECU.NC }, (_, ci) => ecuRpmLabel(ci)).join(',') + '\n';
+  for (let li = ECU.NL - 1; li >= 0; li--) {
+    csv += ecuLoadLabel(li) + ',' + grid[li].map(cell => {
+      const s = ecuCellStats(cell);
+      return s ? s.med.toFixed(def.dp) : '';
+    }).join(',') + '\n';
+  }
+  csv += '"# samples per cell"\n';
+  for (let li = ECU.NL - 1; li >= 0; li--)
+    csv += ecuLoadLabel(li) + ',' + grid[li].map(c => c.n || '').join(',') + '\n';
+  return csv;
+}
+
+function downloadText(txt, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv' }));
+  a.download = name; a.click();
+}
+function exportEcuTableCsv() {
+  const key = document.getElementById('ecu-table-select').value;
+  downloadText(ecuTableToCsv(key), `ecu_table_${key}_${Date.now()}.csv`);
+}
+function exportAllEcuTables() {
+  downloadText(Object.keys(ECU.DEFS).map(ecuTableToCsv).join('\n'),
+               `ecu_tables_all_${Date.now()}.csv`);
+}
+document.querySelector('[data-tab="maps"]').addEventListener('click', () => setTimeout(renderEcuTable, 60));
 
 // ── DBC decoder ──
 function loadDbcFile(e) {
