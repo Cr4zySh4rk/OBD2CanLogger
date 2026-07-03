@@ -272,6 +272,8 @@
     table.frame-table tr:hover td { background: rgba(0,234,255,.04); }
     @keyframes flashRow { 0% { background: rgba(0,234,255,.16); } 100% { background: transparent; } }
     .new-frame td { animation: flashRow .4s ease; }
+    @keyframes ecuFlash { 0% { outline: 2px solid var(--cyan); outline-offset: -2px; } 100% { outline: 2px solid transparent; outline-offset: -2px; } }
+    td.ecu-upd { animation: ecuFlash .9s ease; }
 
     /* ── Inputs ── */
     input[type=text], select {
@@ -540,37 +542,21 @@
 
 <!-- ═══════════════ TAB: MAPS ═══════════════ -->
 <div class="tab-panel scrollable" id="tab-maps">
-  <div class="panel" style="flex-shrink:0">
-    <div class="panel-title"><span class="accent">Map</span> Reconstruction — Engine Data</div>
-    <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:12px">
-      Maps are built live from OBD2 PID responses. Connect, start logging, and drive — plots populate in real time.
-    </p>
-    <div style="display:flex;gap:10px">
-      <button class="btn" onclick="clearMaps()">Clear Maps</button>
-      <button class="btn primary" onclick="exportMaps()">Export JSON</button>
-    </div>
-  </div>
-  <div class="maps-grid">
-    <div class="panel"><div class="panel-title">Throttle vs RPM</div>        <canvas id="map-tps-rpm"   width="500" height="220"></canvas></div>
-    <div class="panel"><div class="panel-title">Short Fuel Trim vs RPM</div> <canvas id="map-stft-rpm"  width="500" height="220"></canvas></div>
-    <div class="panel"><div class="panel-title">Ignition Advance vs RPM</div><canvas id="map-ign-rpm"   width="500" height="220"></canvas></div>
-    <div class="panel"><div class="panel-title">MAF vs RPM</div>             <canvas id="map-maf-rpm"   width="500" height="220"></canvas></div>
-    <div class="panel"><div class="panel-title">Intake MAP vs RPM</div>      <canvas id="map-map-rpm"   width="500" height="220"></canvas></div>
-    <div class="panel"><div class="panel-title">Speed vs RPM (gear est.)</div><canvas id="map-speed-rpm" width="500" height="220"></canvas></div>
-  </div>
   <div class="panel">
-    <div class="panel-title"><span class="accent">ECU</span> Map Tables — RPM × Load</div>
+    <div class="panel-title"><span class="accent">ECU</span> Map Table — Live · RPM × Load</div>
     <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:12px">
-      Reconstructed calibration tables in standard tuning-software layout: <b>RPM breakpoints across,
-      engine load down (high load on top)</b>, one median value per cell. Hover any cell for sample
-      count and range; cells with fewer than 3 samples are dimmed (low confidence).
+      Reconstructed calibration table in standard tuning-software layout: <b>RPM breakpoints across,
+      engine load down (high load on top)</b>, one median value per cell, <b>updating live as you
+      drive</b> — cells flash cyan when their value changes, and only the RPM/load range you've
+      actually hit is shown. Hover any cell for sample count and range; italic cells have fewer
+      than 3 samples (low confidence).
       The <b style="color:var(--cyan)">Total Fuel Correction</b> table is the tuner's money map —
       it shows where the factory fuel table is off: <b style="color:var(--orange)">positive = running
       lean (ECU adding fuel)</b>, <b style="color:var(--magenta)">negative = rich (ECU pulling fuel)</b>.
       Corrections beyond ±5 % in a well-hit cell mark a zone worth correcting.
     </p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-      <select id="ecu-table-select" onchange="renderEcuTable()">
+      <select id="ecu-table-select" onchange="renderEcuTable(true)">
         <option value="fuel" selected>Total Fuel Correction — STFT+LTFT (%)</option>
         <option value="ign">Ignition Advance (°BTDC)</option>
         <option value="ve">VE Proxy — Air per Rev (mg/rev)</option>
@@ -580,8 +566,13 @@
         <option value="ltft">Long-Term Fuel Trim (%)</option>
         <option value="tps">Throttle Position (%)</option>
       </select>
+      <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:12px">
+        <input type="checkbox" id="ecu-full-grid" onchange="renderEcuTable(true)"> Show full grid
+      </label>
       <button class="btn primary" onclick="exportEcuTableCsv()">⬇ Download CSV</button>
       <button class="btn" onclick="exportAllEcuTables()">⬇ Download All (CSV)</button>
+      <button class="btn" onclick="exportMaps()">⬇ Raw Points (JSON)</button>
+      <button class="btn danger" onclick="clearMaps()">Clear</button>
       <span id="ecu-table-fill" style="font-size:12px;color:var(--text2)"></span>
     </div>
     <div id="ecu-table-wrap" style="overflow:auto">
@@ -1791,7 +1782,6 @@ function recordMapPoint() {
   state.mapData.push(pt);
   ecuAccumulate(pt);                     // ECU tables keep every sample (binned, unbounded)
   if (state.mapData.length > 2000) state.mapData.shift();
-  drawMaps();
   addMapRow(pt);
   scheduleEcuTableRender();
 }
@@ -1816,108 +1806,10 @@ function addFrameRow(f, sig) {
   tbody.insertBefore(tr, tbody.firstChild);
 }
 
-// ── Map canvases ──
-const MAP_CFG = {
-  // TPS and MAP depend on driver input, not RPM alone (idle 0 % and WOT 90 %
-  // occur at the same revs) — an averaged trend would zigzag, so scatter only.
-  'map-tps-rpm':   { x:'rpm', y:'tps',   xl:'RPM', yl:'TPS %',     color:'#00eaff', trend:false },
-  'map-stft-rpm':  { x:'rpm', y:'stft',  xl:'RPM', yl:'STFT %',    color:'#ff9d00', trend:true  },
-  'map-ign-rpm':   { x:'rpm', y:'ign',   xl:'RPM', yl:'Ign Adv°',  color:'#ffd166', trend:true  },
-  'map-maf-rpm':   { x:'rpm', y:'maf',   xl:'RPM', yl:'MAF g/s',   color:'#2bff88', trend:true  },
-  'map-map-rpm':   { x:'rpm', y:'map',   xl:'RPM', yl:'MAP kPa',   color:'#b44cff', trend:false },
-  // speed/rpm spans multiple gears — an averaged trend line would be meaningless,
-  // so it renders as scatter only (each gear shows up as its own straight band)
-  'map-speed-rpm': { x:'rpm', y:'speed', xl:'RPM', yl:'Speed km/h',color:'#ff2d78', trend:false },
-};
-
-function drawMaps() {
-  // only redraw when the maps tab is visible — saves CPU while driving
-  if (!document.getElementById('tab-maps').classList.contains('active')) return;
-  for (const [id, cfg] of Object.entries(MAP_CFG)) {
-    const canvas = document.getElementById(id);
-    if (!canvas) continue;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    const p = { t:20, r:20, b:36, l:48 };
-
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
-
-    const pts = state.mapData.filter(d => !isNaN(d[cfg.x]) && !isNaN(d[cfg.y]));
-    if (pts.length < 2) {
-      ctx.fillStyle = '#445566'; ctx.font = '13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Waiting for data…', W/2, H/2);
-      continue;
-    }
-    const xs = pts.map(d => d[cfg.x]), ys = pts.map(d => d[cfg.y]);
-    const xMin = Math.min(...xs), xMax = Math.max(...xs)||1;
-    const yMin = Math.min(...ys), yMax = Math.max(...ys)||1;
-    const tx = v => p.l + (v-xMin)/(xMax-xMin)*(W-p.l-p.r);
-    const ty = v => H-p.b - (v-yMin)/(yMax-yMin)*(H-p.t-p.b);
-
-    ctx.strokeStyle = '#141b30'; ctx.lineWidth = 1;
-    for (let i=0;i<=4;i++) { const y=p.t+i*(H-p.t-p.b)/4; ctx.beginPath(); ctx.moveTo(p.l,y); ctx.lineTo(W-p.r,y); ctx.stroke(); }
-    ctx.strokeStyle = '#1d2843'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(p.l,p.t); ctx.lineTo(p.l,H-p.b); ctx.lineTo(W-p.r,H-p.b); ctx.stroke();
-    ctx.fillStyle = '#7d8db0'; ctx.font = '11px monospace';
-    ctx.textAlign = 'center';  ctx.fillText(cfg.xl, W/2, H-4);
-    ctx.textAlign = 'right';
-    ctx.fillText(yMax.toFixed(1), p.l-4, p.t+4);
-    ctx.fillText(yMin.toFixed(1), p.l-4, H-p.b);
-    ctx.textAlign = 'center';
-    ctx.fillText(xMin.toFixed(0), p.l, H-p.b+14);
-    ctx.fillText(xMax.toFixed(0), W-p.r, H-p.b+14);
-    ctx.save(); ctx.translate(12,H/2); ctx.rotate(-Math.PI/2);
-    ctx.fillText(cfg.yl, 0, 0); ctx.restore();
-
-    // ── scatter cloud ──
-    // Data points arrive asynchronously (each PID at its own rate), so
-    // connecting them in time order draws garbage. Plot the cloud instead…
-    ctx.fillStyle = cfg.color;
-    ctx.globalAlpha = 0.28;
-    for (const d of pts) {
-      const x = tx(d[cfg.x]), y = ty(d[cfg.y]);
-      ctx.fillRect(x - 1.25, y - 1.25, 2.5, 2.5);
-    }
-    ctx.globalAlpha = 1;
-
-    // ── …and overlay a binned median trend line (the reconstructed map) ──
-    if (cfg.trend) {
-      const BINS = 26;
-      const bins = Array.from({ length: BINS }, () => []);
-      for (const d of pts) {
-        const bi = Math.min(BINS - 1, Math.floor((d[cfg.x] - xMin) / (xMax - xMin) * BINS));
-        bins[bi].push(d[cfg.y]);
-      }
-      const trend = [];
-      for (let i = 0; i < BINS; i++) {
-        if (bins[i].length < 2) continue;              // need a few samples per bin
-        bins[i].sort((a, b) => a - b);
-        const med = bins[i][Math.floor(bins[i].length / 2)];
-        trend.push({ x: xMin + (i + 0.5) / BINS * (xMax - xMin), y: med });
-      }
-      if (trend.length >= 2) {
-        ctx.save();
-        ctx.strokeStyle = cfg.color; ctx.lineWidth = 2.5;
-        ctx.shadowColor = cfg.color; ctx.shadowBlur = 8;
-        ctx.beginPath();
-        trend.forEach((d, i) => i === 0 ? ctx.moveTo(tx(d.x), ty(d.y)) : ctx.lineTo(tx(d.x), ty(d.y)));
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-
-    // latest sample marker
-    const last = pts[pts.length-1];
-    ctx.fillStyle = cfg.color; ctx.beginPath();
-    ctx.arc(tx(last[cfg.x]), ty(last[cfg.y]), 4, 0, Math.PI*2); ctx.fill();
-  }
-}
-
 function clearMaps() {
+  if (!confirm('Clear all captured map data and ECU table cells?')) return;
   state.mapData=[]; document.getElementById('map-tbody').innerHTML='';
-  ecuReset(); drawMaps(); renderEcuTable();
+  ecuReset(); renderEcuTable(true);
 }
 function exportMaps() {
   const a = document.createElement('a');
@@ -2007,16 +1899,20 @@ function ecuCellColor(v, lo, hi, diverging) {
 let ecuRenderQueued = 0;
 function scheduleEcuTableRender() {
   const now = Date.now();
-  if (now - ecuRenderQueued < 1200) return;                       // throttle
+  if (now - ecuRenderQueued < 600) return;                        // live refresh throttle
   if (!document.getElementById('tab-maps').classList.contains('active')) return;
   ecuRenderQueued = now;
   renderEcuTable();
 }
 
-function renderEcuTable() {
+// previous rendered medians per table — used to flash only the cells that changed
+let ecuPrev = { key: null, meds: null };
+
+function renderEcuTable(reset) {
   const key = document.getElementById('ecu-table-select').value;
   const def = ECU.DEFS[key];
   const grid = ECU.bins[key];
+  const fullGrid = document.getElementById('ecu-full-grid')?.checked;
 
   // collect stats + global range
   let lo = Infinity, hi = -Infinity, filled = 0;
@@ -2032,24 +1928,42 @@ function renderEcuTable() {
     return;
   }
 
-  let h = '<table style="border-collapse:collapse;font-family:var(--mono);font-size:12px;min-width:760px">';
+  // ── smart display: trim to the contiguous RPM/load range actually hit ──
+  // (CSV downloads always contain the complete grid.)
+  let c0 = 0, c1 = ECU.NC - 1, l0 = 0, l1 = ECU.NL - 1;
+  if (!fullGrid) {
+    const colHas = ci => stats.some(row => row[ci]);
+    const rowHas = li => stats[li].some(s => s);
+    while (c0 < c1 && !colHas(c0)) c0++;
+    while (c1 > c0 && !colHas(c1)) c1--;
+    while (l0 < l1 && !rowHas(l0)) l0++;
+    while (l1 > l0 && !rowHas(l1)) l1--;
+  }
+
+  // flash bookkeeping
+  if (reset || ecuPrev.key !== key) ecuPrev = { key, meds: null };
+  const prevMeds = ecuPrev.meds;
+  const curMeds = stats.map(row => row.map(s => s ? s.med.toFixed(def.dp) : null));
+
+  let h = '<table style="border-collapse:collapse;font-family:var(--mono);font-size:12px">';
   // header row: RPM breakpoints
   h += '<tr><th style="padding:5px 8px;color:var(--text2);font-size:10px;letter-spacing:1px">LOAD % ╲ RPM</th>';
-  for (let ci = 0; ci < ECU.NC; ci++)
-    h += `<th style="padding:5px 6px;color:var(--cyan);font-weight:700;border-bottom:1px solid var(--border)">${ecuRpmLabel(ci)}</th>`;
+  for (let ci = c0; ci <= c1; ci++)
+    h += `<th style="padding:5px 8px;color:var(--cyan);font-weight:700;border-bottom:1px solid var(--border)">${ecuRpmLabel(ci)}</th>`;
   h += '</tr>';
   // rows: HIGH load at the top, like tuning software
-  for (let li = ECU.NL - 1; li >= 0; li--) {
+  for (let li = l1; li >= l0; li--) {
     h += `<tr><th style="padding:4px 8px;color:var(--magenta);font-weight:700;text-align:right;border-right:1px solid var(--border)">${ecuLoadLabel(li)}</th>`;
-    for (let ci = 0; ci < ECU.NC; ci++) {
+    for (let ci = c0; ci <= c1; ci++) {
       const s = stats[li][ci];
       if (!s) {
-        h += '<td style="padding:4px 6px;text-align:center;color:#2a3854;border:1px solid rgba(29,40,67,.35)">·</td>';
+        h += '<td style="padding:4px 8px;text-align:center;color:#2a3854;border:1px solid rgba(29,40,67,.35)">·</td>';
       } else {
         const lowConf = s.n < 3;
+        const changed = prevMeds && prevMeds[li][ci] !== curMeds[li][ci];
         const bg = ecuCellColor(s.med, lo, hi, def.diverging);
-        h += `<td title="${s.n} sample${s.n>1?'s':''} · range ${s.min.toFixed(def.dp)} to ${s.max.toFixed(def.dp)} ${def.unit}"
-               style="padding:4px 6px;text-align:center;border:1px solid rgba(29,40,67,.5);background:${bg};
+        h += `<td class="${changed ? 'ecu-upd' : ''}" title="${s.n} sample${s.n>1?'s':''} · range ${s.min.toFixed(def.dp)} to ${s.max.toFixed(def.dp)} ${def.unit}"
+               style="padding:4px 8px;text-align:center;border:1px solid rgba(29,40,67,.5);background:${bg};
                       color:${lowConf ? 'var(--text2)' : 'var(--text)'};${lowConf ? 'opacity:.55;font-style:italic;' : 'font-weight:600;'}">${s.med.toFixed(def.dp)}</td>`;
       }
     }
@@ -2057,9 +1971,12 @@ function renderEcuTable() {
   }
   h += '</table>';
   wrap.innerHTML = h;
+  ecuPrev.meds = curMeds;
 
+  const trimmed = !fullGrid && (c0 > 0 || c1 < ECU.NC - 1 || l0 > 0 || l1 < ECU.NL - 1);
   document.getElementById('ecu-table-fill').textContent =
-    `${def.label} (${def.unit}) — ${filled}/${ECU.NC * ECU.NL} cells hit (${Math.round(filled / (ECU.NC * ECU.NL) * 100)} % coverage)`;
+    `${def.label} (${def.unit}) — ${filled}/${ECU.NC * ECU.NL} cells hit (${Math.round(filled / (ECU.NC * ECU.NL) * 100)} % coverage)` +
+    (trimmed ? ' · view trimmed to hit range — CSV has the full grid' : '');
 
   const legend = document.getElementById('ecu-table-legend');
   legend.style.display = 'flex';
@@ -2338,7 +2255,6 @@ function appendSerial(dir, txt) {
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // redraw maps when switching to the maps tab
-document.querySelector('[data-tab="maps"]').addEventListener('click', () => setTimeout(drawMaps, 50));
 
 // ── Init ──
 appendSerial('sys', 'OBD2//REDLINE ready — connect device via USB (Chrome/Edge) or hit 🎮 Demo');
