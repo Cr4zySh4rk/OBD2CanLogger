@@ -1,6 +1,6 @@
-# OBD2 CAN Logger
+# OBD2 CAN Logger — //REDLINE
 
-> **Capture, decode, and reconstruct your car's ECU maps from the OBD2 port — using an Adafruit Feather M4 CAN, an SD card, and a browser.**
+> **Capture, decode, race and diagnose — a Need-for-Speed-style dashboard for your car's OBD2 port, powered by an Adafruit Feather M4 CAN, an SD card, and a browser.**
 
 ---
 
@@ -9,9 +9,13 @@
 OBD2 CAN Logger is an open-source hardware + firmware + web-app project that:
 
 1. **Logs every CAN frame** from your car's OBD2 port to an SD card in real-time (CSV + binary)
-2. **Streams live data** to a Betaflight-style web dashboard over USB Serial (Web Serial API)
-3. **Decodes signals** using standard OBD2 PIDs or custom `.dbc` files from [opendbc](https://github.com/commaai/opendbc)
-4. **Reconstructs engine maps** — fuel trims, ignition advance, MAF, MAP, throttle, RPM — as a baseline for tuning
+2. **Streams live data** to a neon racing dashboard over USB Serial (Web Serial API) — animated speedo + tach with shift lights, live steering-wheel visualization, and flashing engine warnings
+3. **Times your runs** — 0–60 km/h, 0–100 km/h, ¼ mile with trap speed, 100–0 braking distance, longitudinal g-force, and a best-times leaderboard
+4. **Grades your car's health** — one-click diagnostic scan reads live sensors, trouble codes (DTCs), the check-engine light and the VIN, then produces a downloadable A–F report
+5. **Decodes signals** using standard OBD2 PIDs or custom `.dbc` files from [opendbc](https://github.com/commaai/opendbc)
+6. **Reconstructs engine maps** — fuel trims, ignition advance, MAF, MAP, throttle, RPM — as a baseline for tuning
+
+No hardware yet? Hit **🎮 Demo** in the web app for a fully simulated drive — every gauge, timer, warning and the health scan work offline.
 
 The ultimate goal is to reverse-engineer and document the factory calibration maps of any OBD2-compliant car, so they can serve as a starting point for custom ECU tuning.
 
@@ -150,6 +154,19 @@ Send commands as JSON terminated by `\n`:
 
 // Format SD card — deletes all log files, starts a fresh logging session.
 {"cmd":"format"}
+
+// Request stored (mode 03) + pending (mode 07) DTCs and MIL status.
+// ECU responses stream back as normal CAN frames; the web app decodes them.
+{"cmd":"dtc"}
+
+// Clear DTCs and reset the check-engine light (mode 04)
+{"cmd":"cleardtc"}
+
+// Request the VIN (mode 09 PID 02, multi-frame ISO-TP)
+{"cmd":"vin"}
+
+// Transmit a raw CAN frame
+{"cmd":"cansend","id":2015,"data":[2,1,12,0,0,0,0,0]}
 ```
 
 The device sends frames as compact JSON:
@@ -184,12 +201,17 @@ No server, no Node.js, no installation — it's a single self-contained HTML fil
 
 | Tab | Description |
 |-----|-------------|
-| 📡 **Live Data** | Real-time gauge dashboard + scrolling frame table. Filter by CAN ID. OBD2 PIDs auto-decoded. |
-| 🗺️ **Map Reconstruction** | Live scatter plots: TPS/RPM, Fuel Trim/RPM, Ignition Advance/RPM, MAF/RPM, MAP/RPM, Speed/RPM. Export as JSON. |
-| 📋 **DBC Decoder** | Load any `.dbc` file (drag & drop) or use built-in OBD2 PID table. Shows live decoded signal values. |
-| 💾 **Log Viewer** | Open CSV logs from the SD card. Searchable/filterable. |
-| ⚙️ **Configuration** | Configure bitrate, session name, log format, ID filters. Apply directly to device. |
-| 🖥️ **Serial Console** | Raw JSON command terminal for direct device communication. |
+| 🏁 **Dashboard** | Animated speedometer + tachometer with configurable redline, shift-light strip, live steering-wheel visualization (DBC-driven), 16 digital readouts (coolant, oil, battery, fuel, g-force…) and flashing warnings (coolant/oil temp too high, battery voltage, over-rev, fuel trims, low fuel, MIL). |
+| ⚡ **Performance** | Launch-armed 0–60 km/h and 0–100 km/h timers (sample-interpolated), ¼-mile time + trap speed, 100–0 km/h braking distance, live 60-second speed trace, run history and persistent best times. |
+| 🩺 **Health** | One-click health scan: reads stored + pending DTCs (with built-in code descriptions), MIL status, VIN, and grades 11 systems A–F. Downloadable HTML report. Clear DTCs / reset MIL. |
+| 📡 **Telemetry** | Scrolling raw CAN frame table. Filter by CAN ID. OBD2 PIDs auto-decoded. |
+| 🗺️ **Maps** | Live scatter plots: TPS/RPM, Fuel Trim/RPM, Ignition Advance/RPM, MAF/RPM, MAP/RPM, Speed/RPM. Export as JSON. |
+| 📋 **DBC** | Load any `.dbc` file (drag & drop) or use built-in OBD2 PID table. Shows live decoded signal values. Pick which signal drives the steering wheel (auto-detects `STEER*` signals). |
+| 💾 **Logs** | Open CSV logs from the SD card. Searchable/filterable. |
+| ⚙️ **Config** | Configure bitrate, session name, log format, ID filters, tach redline. Apply directly to device. |
+| 🖥️ **Console** | Raw JSON command terminal for direct device communication. |
+
+> **Steering visualization:** steering angle is not a standard OBD2 PID — it lives in manufacturer-specific CAN messages. Load your car's `.dbc` from opendbc in the DBC tab and the wheel auto-binds to the first `STEER…ANGLE` signal (or pick one manually).
 
 ### Connecting
 
@@ -291,9 +313,24 @@ with open('session.can', 'rb') as f:
 
 ---
 
+## Firmware PID Polling
+
+The firmware auto-polls Mode 01 PIDs on a two-tier schedule (30 ms slot time):
+
+- **Fast tier (~8 Hz each):** vehicle speed (0x0D) and RPM (0x0C) — high-rate speed sampling is what makes the 0–60/0–100 timers accurate
+- **Slow tier (round-robin):** throttle, coolant temp, ignition advance, MAF, MAP, fuel trims, O2, engine load, IAT, fuel level, battery voltage, oil temp, ambient temp, MIL status
+
+It also answers ISO-TP First Frames from the ECU with Flow Control automatically, so multi-frame DTC lists and the VIN arrive complete.
+
+---
+
 ## Roadmap
 
-- [ ] OBD2 PID poller (auto-query Mode 01 PIDs at configurable rate)
+- [x] OBD2 PID poller (auto-query Mode 01 PIDs, two-tier fast/slow schedule)
+- [x] DTC read/clear + health report
+- [x] Acceleration timers (0–60, 0–100, ¼ mile) + braking distance
+- [x] Steering-angle visualization from DBC signals
+- [x] Demo mode (full simulated drive, no hardware)
 - [ ] 3D surface map visualization (RPM × Load → value)
 - [ ] Compare two log sessions side-by-side
 - [ ] Export maps to CSV / MegaTune format

@@ -3,178 +3,297 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OBD2 CAN Logger</title>
+  <title>OBD2 CAN Logger — REDLINE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:     #0e1117;
-      --bg2:    #161b25;
-      --bg3:    #1e2535;
-      --border: #2a3347;
-      --accent: #00d4ff;
-      --accent2:#ff6b35;
-      --green:  #00e676;
-      --red:    #ff1744;
-      --yellow: #ffd740;
-      --text:   #e0e8f0;
-      --text2:  #8899aa;
-      --font:   'Segoe UI', system-ui, sans-serif;
-      --mono:   'Cascadia Code', 'Fira Mono', monospace;
+      --bg:      #04050a;
+      --bg2:     #0a0d16;
+      --bg3:     #101525;
+      --border:  #1d2843;
+      --cyan:    #00eaff;
+      --magenta: #ff2d78;
+      --orange:  #ff9d00;
+      --green:   #2bff88;
+      --red:     #ff2038;
+      --yellow:  #ffd166;
+      --purple:  #b44cff;
+      --text:    #e8f1ff;
+      --text2:   #7d8db0;
+      --font:    'Rajdhani', 'Bahnschrift', 'Segoe UI', system-ui, sans-serif;
+      --display: 'Orbitron', 'Bahnschrift', 'Arial Black', sans-serif;
+      --mono:    'Consolas', 'Cascadia Code', 'Fira Mono', monospace;
     }
-    html, body {
-      height: 100%;
-    }
+    html, body { height: 100%; }
     body {
-      background: var(--bg);
+      background:
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(0,234,255,.07), transparent 60%),
+        radial-gradient(ellipse 60% 50% at 90% 110%, rgba(255,45,120,.06), transparent 60%),
+        var(--bg);
       color: var(--text);
       font-family: var(--font);
-      font-size: 14px;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
+      font-size: 15px;
+      display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden;
+    }
+    /* scanline + vignette overlay */
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+      background:
+        repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+        radial-gradient(ellipse 120% 120% at 50% 50%, transparent 65%, rgba(0,0,0,.45));
     }
 
     /* ── Header ── */
     header {
-      background: var(--bg2);
-      border-bottom: 2px solid var(--accent);
-      padding: 0 20px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      height: 52px;
-      flex-shrink: 0;
+      background: linear-gradient(90deg, #0a0d16 0%, #0d1220 55%, #160a14 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px; display: flex; align-items: center; gap: 14px;
+      height: 58px; flex-shrink: 0; position: relative;
     }
-    .logo { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
-    .logo span { color: var(--accent2); }
-    .conn-bar { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    header::after {
+      content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple) 45%, var(--magenta) 75%, var(--orange));
+      box-shadow: 0 0 12px rgba(0,234,255,.5);
+    }
+    .logo {
+      font-family: var(--display); font-size: 19px; font-weight: 900;
+      letter-spacing: 2px; font-style: italic; color: var(--text);
+      text-shadow: 0 0 14px rgba(0,234,255,.6);
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    .logo .rl { color: var(--magenta); text-shadow: 0 0 14px rgba(255,45,120,.7); }
+    .logo small { font-family: var(--font); font-size: 10px; color: var(--text2); letter-spacing: 3px; font-style: normal; }
+    .conn-bar { margin-left: auto; display: flex; align-items: center; gap: 10px; }
     .status-dot {
       width: 10px; height: 10px; border-radius: 50%;
-      background: var(--red); box-shadow: 0 0 6px var(--red);
+      background: var(--red); box-shadow: 0 0 8px var(--red);
       transition: background .3s, box-shadow .3s;
     }
-    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
-    #conn-label { color: var(--text2); font-size: 12px; }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 10px var(--green); }
+    #conn-label { color: var(--text2); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
 
     /* ── Buttons ── */
     .btn {
-      background: var(--bg3); border: 1px solid var(--border);
-      color: var(--text); padding: 6px 14px; border-radius: 5px;
-      cursor: pointer; font-size: 13px; transition: border-color .2s, background .2s;
+      background: linear-gradient(180deg, #141a2e, #0d1120);
+      border: 1px solid var(--border); color: var(--text);
+      padding: 7px 16px; cursor: pointer; font-size: 13px;
+      font-family: var(--font); font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase;
+      clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+      transition: border-color .15s, box-shadow .15s, color .15s;
     }
-    .btn:hover { border-color: var(--accent); }
-    .btn.primary { background: var(--accent); color: #000; font-weight: 600; border-color: var(--accent); }
-    .btn.primary:hover { background: #00b8d9; }
-    .btn.danger  { border-color: var(--red);   color: var(--red); }
-    .btn.danger:hover  { background: rgba(255,23,68,.15); }
+    .btn:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 12px rgba(0,234,255,.25); }
+    .btn.primary { border-color: var(--cyan); color: #001318; background: linear-gradient(180deg, #24f0ff, #00b8d4); font-weight: 700; }
+    .btn.primary:hover { box-shadow: 0 0 18px rgba(0,234,255,.6); color: #001318; }
+    .btn.danger  { border-color: var(--red); color: var(--red); }
+    .btn.danger:hover { box-shadow: 0 0 14px rgba(255,32,56,.4); color: var(--red); }
     .btn.success { border-color: var(--green); color: var(--green); }
-    .btn.success:hover { background: rgba(0,230,118,.1); }
-    .btn:disabled, .btn[disabled] {
-      opacity: 0.35; cursor: not-allowed; pointer-events: none;
-    }
+    .btn.success:hover { box-shadow: 0 0 14px rgba(43,255,136,.35); color: var(--green); }
+    .btn.magenta { border-color: var(--magenta); color: var(--magenta); }
+    .btn.magenta:hover { box-shadow: 0 0 14px rgba(255,45,120,.45); color: var(--magenta); }
+    .btn.big { font-size: 16px; padding: 12px 30px; font-family: var(--display); }
+    .btn:disabled, .btn[disabled] { opacity: .3; cursor: not-allowed; pointer-events: none; }
 
     /* ── Tab Bar ── */
     nav.tabs {
-      background: var(--bg2);
-      display: flex;
-      padding: 0 16px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
+      background: rgba(10,13,22,.9);
+      display: flex; padding: 0 14px; gap: 2px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      overflow-x: auto;
     }
     .tab-btn {
       background: none; border: none; color: var(--text2);
-      padding: 12px 18px; cursor: pointer; font-size: 13px;
-      font-family: var(--font); border-bottom: 3px solid transparent;
-      transition: color .2s, border-color .2s;
-      display: flex; align-items: center; gap: 6px;
+      padding: 11px 16px; cursor: pointer; font-size: 13px;
+      font-family: var(--font); font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; border-bottom: 3px solid transparent;
+      transition: color .2s, border-color .2s, text-shadow .2s;
+      display: flex; align-items: center; gap: 6px; white-space: nowrap;
     }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); text-shadow: 0 0 10px rgba(0,234,255,.6); }
     .tab-btn:hover:not(.active) { color: var(--text); }
 
-    /* ── Tab Panels ──
-       ALL panels hidden by default via display:none.
-       We ONLY use .tab-panel and .tab-panel.active — no per-tab ID rules
-       that could interfere with visibility. */
     .tab-panel {
-      display: none;          /* hidden by default */
-      flex: 1;
-      flex-direction: column;
-      overflow: hidden;
-      padding: 16px;
-      gap: 16px;
+      display: none; flex: 1; flex-direction: column;
+      overflow: hidden; padding: 16px; gap: 14px;
     }
-    .tab-panel.active {
-      display: flex;          /* shown when active */
-    }
-    /* Scrollable tabs get overflow:auto instead */
+    .tab-panel.active { display: flex; }
     .tab-panel.scrollable { overflow: auto; }
 
-    /* ── Shared panel card ── */
-    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-    .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text2); margin-bottom: 12px; }
+    /* ── Shared panel card — angular racing style ── */
+    .panel {
+      background: linear-gradient(180deg, rgba(16,21,37,.92), rgba(10,13,22,.92));
+      border: 1px solid var(--border); padding: 16px; position: relative;
+      clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    }
+    .panel::before {
+      content:''; position:absolute; top:0; left:14px; right:0; height:1px;
+      background: linear-gradient(90deg, var(--cyan), transparent 60%); opacity:.5;
+    }
+    .panel-title {
+      font-family: var(--display); font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 3px; color: var(--text2);
+      margin-bottom: 12px;
+    }
+    .panel-title .accent { color: var(--cyan); }
 
-    /* ── Live Data Tab ── */
-    .live-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-      gap: 10px;
-      flex-shrink: 0;
+    /* ── Warning banner ── */
+    #warning-banner {
+      display: none; flex-shrink: 0; padding: 8px 20px;
+      background: linear-gradient(90deg, rgba(255,32,56,.22), rgba(255,32,56,.08));
+      border-bottom: 1px solid var(--red);
+      font-family: var(--display); font-size: 13px; font-weight: 700;
+      letter-spacing: 2px; color: var(--red); text-transform: uppercase;
+      align-items: center; gap: 14px;
+      animation: warnFlash 1s ease-in-out infinite;
     }
-    .gauge-card {
-      background: var(--bg3); border: 1px solid var(--border);
-      border-radius: 8px; padding: 12px; text-align: center;
-    }
-    .gauge-card .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .7px; }
-    .gauge-card .value { font-size: 26px; font-weight: 700; color: var(--accent); font-family: var(--mono); margin: 4px 0 2px; }
-    .gauge-card .unit  { font-size: 11px; color: var(--text2); }
+    #warning-banner.show { display: flex; }
+    @keyframes warnFlash { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+    #warning-banner .warn-items { display:flex; gap:18px; flex-wrap:wrap; }
 
-    .live-controls {
-      display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0;
+    /* ── Dashboard ── */
+    .dash-top {
+      display: grid; grid-template-columns: 1fr auto 1fr;
+      gap: 14px; align-items: stretch; flex-shrink: 0;
     }
+    @media (max-width: 1150px) { .dash-top { grid-template-columns: 1fr; } }
+    .gauge-panel { display: flex; align-items: center; justify-content: center; padding: 8px; }
+    .steer-panel {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 6px; min-width: 260px; padding: 10px 20px;
+    }
+    #steer-svg-wrap { width: 190px; height: 190px; transition: transform .08s linear; filter: drop-shadow(0 0 12px rgba(0,234,255,.25)); }
+    #steer-angle-label { font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--cyan); text-shadow: 0 0 12px rgba(0,234,255,.5); }
+    #steer-src-label { font-size: 11px; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; }
+
+    .digi-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+      gap: 8px; flex-shrink: 0;
+    }
+    .digi {
+      background: linear-gradient(180deg, rgba(16,21,37,.9), rgba(8,10,18,.9));
+      border: 1px solid var(--border); padding: 8px 10px; text-align: center;
+      clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+      transition: border-color .3s, box-shadow .3s;
+    }
+    .digi .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+    .digi .value { font-family: var(--display); font-size: 21px; font-weight: 700; color: var(--cyan); margin: 2px 0; text-shadow: 0 0 10px rgba(0,234,255,.35); }
+    .digi .unit  { font-size: 10px; color: var(--text2); letter-spacing: 1px; }
+    .digi.warn { border-color: var(--red); box-shadow: 0 0 14px rgba(255,32,56,.5); }
+    .digi.warn .value { color: var(--red); text-shadow: 0 0 12px rgba(255,32,56,.7); }
+    .digi.good .value { color: var(--green); text-shadow: 0 0 10px rgba(43,255,136,.4); }
+
+    .dash-bottom { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
     #frame-count-badge {
       background: var(--bg3); border: 1px solid var(--border);
-      border-radius: 4px; padding: 4px 10px;
-      font-family: var(--mono); font-size: 12px; color: var(--accent);
+      padding: 5px 12px; font-family: var(--mono); font-size: 12px; color: var(--cyan);
+      clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
     }
-    #filter-input {
-      background: var(--bg3); border: 1px solid var(--border);
-      color: var(--text); padding: 5px 10px; border-radius: 5px;
-      font-family: var(--mono); font-size: 12px; width: 210px;
-    }
-    #filter-input:focus { outline: none; border-color: var(--accent); }
 
-    #live-frame-table-wrap { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    /* ── Shift light strip ── */
+    .shift-strip { display: flex; gap: 5px; justify-content: center; margin-bottom: 4px; }
+    .shift-led {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #131a2c; border: 1px solid var(--border);
+      transition: background .05s, box-shadow .05s;
+    }
+    .shift-led.on.g { background: var(--green);   box-shadow: 0 0 10px var(--green); }
+    .shift-led.on.y { background: var(--yellow);  box-shadow: 0 0 10px var(--yellow); }
+    .shift-led.on.r { background: var(--red);     box-shadow: 0 0 12px var(--red); }
+    .shift-led.flash { animation: ledFlash .12s steps(2) infinite; }
+    @keyframes ledFlash { 50% { opacity: .15; } }
+
+    /* ── Performance tab ── */
+    .perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; flex-shrink: 0; }
+    .timer-card { text-align: center; padding: 22px 16px; }
+    .timer-card .t-label {
+      font-family: var(--display); font-size: 13px; font-weight: 700;
+      letter-spacing: 3px; color: var(--text2); text-transform: uppercase;
+    }
+    .timer-card .t-value {
+      font-family: var(--display); font-size: 52px; font-weight: 900;
+      color: var(--cyan); text-shadow: 0 0 22px rgba(0,234,255,.55);
+      margin: 8px 0 2px; font-style: italic;
+    }
+    .timer-card .t-value.running { color: var(--yellow); text-shadow: 0 0 22px rgba(255,209,102,.6); }
+    .timer-card .t-value.done { color: var(--green); text-shadow: 0 0 26px rgba(43,255,136,.65); }
+    .timer-card .t-best { font-size: 13px; color: var(--magenta); letter-spacing: 1px; font-weight: 700; }
+    .timer-card .t-sub { font-size: 11px; color: var(--text2); letter-spacing: 1px; margin-top: 4px; text-transform: uppercase; }
+    #launch-status {
+      font-family: var(--display); font-size: 15px; letter-spacing: 3px;
+      text-transform: uppercase; text-align: center; padding: 10px;
+      color: var(--text2); flex-shrink: 0;
+    }
+    #launch-status.armed { color: var(--green); text-shadow: 0 0 14px rgba(43,255,136,.6); animation: warnFlash 1.2s infinite; }
+    #launch-status.launched { color: var(--yellow); text-shadow: 0 0 14px rgba(255,209,102,.6); }
+
+    /* ── Health tab ── */
+    .health-hero { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+    #health-grade {
+      font-family: var(--display); font-size: 84px; font-weight: 900; font-style: italic;
+      width: 130px; height: 130px; display: flex; align-items: center; justify-content: center;
+      border: 3px solid var(--border); border-radius: 50%;
+      color: var(--text2); flex-shrink: 0;
+    }
+    #health-grade.gA { color: var(--green); border-color: var(--green); text-shadow: 0 0 24px rgba(43,255,136,.7); box-shadow: 0 0 30px rgba(43,255,136,.25), inset 0 0 30px rgba(43,255,136,.12); }
+    #health-grade.gB { color: var(--cyan); border-color: var(--cyan); text-shadow: 0 0 24px rgba(0,234,255,.7); box-shadow: 0 0 30px rgba(0,234,255,.25), inset 0 0 30px rgba(0,234,255,.12); }
+    #health-grade.gC { color: var(--yellow); border-color: var(--yellow); text-shadow: 0 0 24px rgba(255,209,102,.7); box-shadow: 0 0 30px rgba(255,209,102,.25), inset 0 0 30px rgba(255,209,102,.12); }
+    #health-grade.gD { color: var(--orange); border-color: var(--orange); text-shadow: 0 0 24px rgba(255,157,0,.7); box-shadow: 0 0 30px rgba(255,157,0,.25), inset 0 0 30px rgba(255,157,0,.12); }
+    #health-grade.gF { color: var(--red); border-color: var(--red); text-shadow: 0 0 24px rgba(255,32,56,.7); box-shadow: 0 0 30px rgba(255,32,56,.3), inset 0 0 30px rgba(255,32,56,.15); }
+    .health-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+    .hcheck {
+      display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+      background: rgba(16,21,37,.7); border: 1px solid var(--border);
+      border-left: 3px solid var(--text2);
+    }
+    .hcheck.ok    { border-left-color: var(--green); }
+    .hcheck.warn  { border-left-color: var(--yellow); }
+    .hcheck.fail  { border-left-color: var(--red); }
+    .hcheck.na    { opacity: .55; }
+    .hcheck .ic { font-size: 16px; }
+    .hcheck .h-name { font-weight: 700; letter-spacing: .5px; }
+    .hcheck .h-msg { font-size: 12px; color: var(--text2); }
+    .dtc-row { display:flex; gap:12px; align-items:baseline; padding:8px 12px; border-bottom:1px solid rgba(29,40,67,.6); font-family: var(--mono); }
+    .dtc-code { color: var(--red); font-weight:700; font-size:15px; text-shadow:0 0 8px rgba(255,32,56,.5); }
+    .dtc-desc { color: var(--text); font-family: var(--font); font-size: 13px; }
+
+    /* ── Tables ── */
+    #live-frame-table-wrap { flex: 1; overflow: auto; border: 1px solid var(--border); }
     table.frame-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
     table.frame-table th {
       background: var(--bg3); color: var(--text2); padding: 8px 10px;
-      text-align: left; font-weight: 600; font-family: var(--font);
-      font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
-      position: sticky; top: 0; border-bottom: 1px solid var(--border);
+      text-align: left; font-weight: 700; font-family: var(--font);
+      font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+      position: sticky; top: 0; border-bottom: 1px solid var(--border); z-index: 1;
     }
-    table.frame-table td { padding: 5px 10px; border-bottom: 1px solid rgba(42,51,71,.5); }
-    table.frame-table tr:hover td { background: rgba(0,212,255,.04); }
-    @keyframes flashRow { 0% { background: rgba(0,212,255,.18); } 100% { background: transparent; } }
+    table.frame-table td { padding: 5px 10px; border-bottom: 1px solid rgba(29,40,67,.45); }
+    table.frame-table tr:hover td { background: rgba(0,234,255,.04); }
+    @keyframes flashRow { 0% { background: rgba(0,234,255,.16); } 100% { background: transparent; } }
     .new-frame td { animation: flashRow .4s ease; }
 
-    /* ── Maps Tab ── */
-    .maps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    @media (max-width: 800px) { .maps-grid { grid-template-columns: 1fr; } }
+    /* ── Inputs ── */
+    input[type=text], select {
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); padding: 7px 10px; font-size: 13px; font-family: var(--font);
+    }
+    input[type=text]:focus, select:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,234,255,.25); }
+    #filter-input { font-family: var(--mono); font-size: 12px; width: 220px; }
 
-    /* ── DBC Tab ── */
+    /* ── Maps / DBC / config (carried over, restyled) ── */
+    .maps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 800px) { .maps-grid { grid-template-columns: 1fr; } }
     .dbc-top { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; flex-shrink: 0; }
     .dbc-drop-zone {
-      border: 2px dashed var(--border); border-radius: 8px;
-      padding: 20px 28px; text-align: center; color: var(--text2);
-      cursor: pointer; transition: border-color .2s; min-width: 200px;
+      border: 2px dashed var(--border); padding: 20px 28px; text-align: center;
+      color: var(--text2); cursor: pointer; transition: border-color .2s; min-width: 200px;
     }
-    .dbc-drop-zone:hover, .dbc-drop-zone.drag-over { border-color: var(--accent); color: var(--accent); }
+    .dbc-drop-zone:hover, .dbc-drop-zone.drag-over { border-color: var(--cyan); color: var(--cyan); }
     .dbc-drop-zone .big-icon { font-size: 30px; display: block; margin-bottom: 6px; }
-
-    /* ── Log / Serial console ── */
     .console-box {
-      flex: 1; background: #060a10; border: 1px solid var(--border);
-      border-radius: 8px; padding: 12px; overflow-y: auto;
+      flex: 1; background: #030408; border: 1px solid var(--border);
+      padding: 12px; overflow-y: auto;
       font-family: var(--mono); font-size: 12px; line-height: 1.7;
     }
     .log-line       { color: var(--text2); }
@@ -185,101 +304,230 @@
     .serial-line.rx  { color: #7ecfff; }
     .serial-line.tx  { color: var(--yellow); }
     .serial-line.sys { color: var(--text2); font-style: italic; }
-
     .serial-input-row { display: flex; gap: 8px; flex-shrink: 0; }
-    #serial-input {
-      flex: 1; background: var(--bg3); border: 1px solid var(--border);
-      color: var(--text); padding: 8px 12px; border-radius: 5px;
-      font-family: var(--mono); font-size: 13px;
-    }
-    #serial-input:focus { outline: none; border-color: var(--accent); }
-
-    /* ── Config Tab ── */
+    #serial-input { flex: 1; font-family: var(--mono); }
     .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     @media (max-width: 700px) { .config-grid { grid-template-columns: 1fr; } }
     .config-row { display: flex; flex-direction: column; gap: 6px; }
-    .config-row label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .7px; }
-    .config-row input, .config-row select {
-      background: var(--bg3); border: 1px solid var(--border);
-      color: var(--text); padding: 8px 10px; border-radius: 5px; font-size: 13px;
-    }
-    .config-row input:focus, .config-row select:focus { outline: none; border-color: var(--accent); }
+    .config-row label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
     .config-row .hint { font-size: 11px; color: var(--text2); }
-
-    /* ── Chips ── */
     .chip {
       display: inline-block; background: var(--bg3); border: 1px solid var(--border);
-      border-radius: 4px; padding: 2px 8px; font-size: 11px; font-family: var(--mono);
+      padding: 2px 10px; font-size: 11px; font-family: var(--mono);
+      clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
     }
-    .chip.blue { border-color: var(--accent); color: var(--accent); }
+    .chip.blue { border-color: var(--cyan); color: var(--cyan); }
 
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #3a4a60; }
+    ::-webkit-scrollbar-thumb { background: var(--border); }
+    ::-webkit-scrollbar-thumb:hover { background: #2c3d63; }
   </style>
 </head>
 <body>
 
 <!-- ═══════════════ HEADER ═══════════════ -->
 <header>
-  <div class="logo">OBD2<span>CAN</span>Logger</div>
+  <div class="logo">OBD2<span class="rl">//REDLINE</span> <small>CAN LOGGER v2.0</small></div>
   <div class="chip blue" id="device-chip">No Device</div>
   <div class="conn-bar">
+    <button class="btn magenta" id="demo-btn" onclick="toggleDemo()" title="Simulated data — no hardware needed">🎮 Demo</button>
     <div class="status-dot" id="status-dot"></div>
-    <span id="conn-label">Disconnected</span>
-    <button class="btn primary" id="connect-btn"    onclick="connectSerial()">Connect USB</button>
+    <span id="conn-label">Offline</span>
+    <button class="btn primary" id="connect-btn"    onclick="connectSerial()">Connect</button>
     <button class="btn danger"  id="disconnect-btn" onclick="disconnectSerial()" style="display:none">Disconnect</button>
-    <button class="btn" id="msc-btn" onclick="enterStorageMode()" style="display:none" title="Mount SD card as USB drive">💾 SD Storage</button>
-    <button class="btn" onclick="sendCmd({cmd:'status'})">⟳ Status</button>
+    <button class="btn" id="msc-btn" onclick="enterStorageMode()" style="display:none" title="Mount SD card as USB drive">💾 SD</button>
+    <button class="btn" onclick="sendCmd({cmd:'status'})">⟳</button>
   </div>
 </header>
 
+<!-- ═══════════════ WARNING BANNER ═══════════════ -->
+<div id="warning-banner">⚠ WARNING <div class="warn-items" id="warn-items"></div></div>
+
 <!-- ═══════════════ TAB BAR ═══════════════ -->
 <nav class="tabs">
-  <button class="tab-btn active" data-tab="live">  <span>📡</span> Live Data        </button>
-  <button class="tab-btn"        data-tab="maps">  <span>🗺️</span> Map Reconstruction</button>
-  <button class="tab-btn"        data-tab="dbc">   <span>📋</span> DBC Decoder      </button>
-  <button class="tab-btn"        data-tab="logs">  <span>💾</span> Log Viewer       </button>
-  <button class="tab-btn"        data-tab="config"><span>⚙️</span> Configuration    </button>
-  <button class="tab-btn"        data-tab="serial"><span>🖥️</span> Serial Console   </button>
+  <button class="tab-btn active" data-tab="dash">   🏁 Dashboard   </button>
+  <button class="tab-btn"        data-tab="perf">   ⚡ Performance </button>
+  <button class="tab-btn"        data-tab="health"> 🩺 Health      </button>
+  <button class="tab-btn"        data-tab="telem">  📡 Telemetry   </button>
+  <button class="tab-btn"        data-tab="maps">   🗺️ Maps        </button>
+  <button class="tab-btn"        data-tab="dbc">    📋 DBC         </button>
+  <button class="tab-btn"        data-tab="logs">   💾 Logs        </button>
+  <button class="tab-btn"        data-tab="config"> ⚙️ Config      </button>
+  <button class="tab-btn"        data-tab="serial"> 🖥️ Console     </button>
 </nav>
 
-<!-- ═══════════════ TAB: LIVE DATA ═══════════════ -->
-<div class="tab-panel active" id="tab-live">
+<!-- ═══════════════ TAB: DASHBOARD ═══════════════ -->
+<div class="tab-panel scrollable active" id="tab-dash">
 
-  <div class="live-grid">
-    <div class="gauge-card"><div class="label">Engine RPM</div>   <div class="value" id="val-rpm">—</div>  <div class="unit">rpm</div></div>
-    <div class="gauge-card"><div class="label">Speed</div>        <div class="value" id="val-speed">—</div><div class="unit">km/h</div></div>
-    <div class="gauge-card"><div class="label">Throttle</div>     <div class="value" id="val-tps">—</div>  <div class="unit">%</div></div>
-    <div class="gauge-card"><div class="label">Coolant Temp</div> <div class="value" id="val-ect">—</div>  <div class="unit">°C</div></div>
-    <div class="gauge-card"><div class="label">MAF</div>          <div class="value" id="val-maf">—</div>  <div class="unit">g/s</div></div>
-    <div class="gauge-card"><div class="label">Short FT</div>     <div class="value" id="val-stft">—</div> <div class="unit">%</div></div>
-    <div class="gauge-card"><div class="label">Long FT</div>      <div class="value" id="val-ltft">—</div> <div class="unit">%</div></div>
-    <div class="gauge-card"><div class="label">Intake MAP</div>   <div class="value" id="val-map">—</div>  <div class="unit">kPa</div></div>
-    <div class="gauge-card"><div class="label">O2 B1S1</div>      <div class="value" id="val-o2">—</div>   <div class="unit">V</div></div>
-    <div class="gauge-card"><div class="label">Ign Advance</div>  <div class="value" id="val-ign">—</div>  <div class="unit">°BTDC</div></div>
-    <div class="gauge-card"><div class="label">Frames/sec</div>   <div class="value" id="val-fps" style="color:var(--green)">0</div><div class="unit">fps</div></div>
-    <div class="gauge-card"><div class="label">Total Frames</div> <div class="value" id="val-total">0</div><div class="unit">frames</div></div>
+  <div class="dash-top">
+    <div class="panel gauge-panel" style="flex-direction:column">
+      <div class="shift-strip" id="shift-strip">
+        <div class="shift-led g"></div><div class="shift-led g"></div><div class="shift-led g"></div>
+        <div class="shift-led y"></div><div class="shift-led y"></div><div class="shift-led y"></div>
+        <div class="shift-led r"></div><div class="shift-led r"></div>
+      </div>
+      <canvas id="gauge-rpm" width="340" height="300"></canvas>
+    </div>
+
+    <div class="panel steer-panel">
+      <div class="panel-title"><span class="accent">Steering</span></div>
+      <div id="steer-svg-wrap">
+        <svg viewBox="0 0 200 200" width="190" height="190">
+          <g id="steer-group">
+            <circle cx="100" cy="100" r="88" fill="none" stroke="#0d1424" stroke-width="22"/>
+            <circle cx="100" cy="100" r="88" fill="none" stroke="#00eaff" stroke-width="3" opacity="0.9"/>
+            <circle cx="100" cy="100" r="77" fill="none" stroke="#1d2843" stroke-width="2"/>
+            <!-- spokes -->
+            <path d="M 100 100 L 22 78 M 100 100 L 178 78 M 100 100 L 100 186" stroke="#0d1424" stroke-width="18" stroke-linecap="round"/>
+            <path d="M 100 100 L 24 80 M 100 100 L 176 80 M 100 100 L 100 184" stroke="#152036" stroke-width="12" stroke-linecap="round"/>
+            <!-- hub -->
+            <circle cx="100" cy="100" r="26" fill="#0d1424" stroke="#1d2843" stroke-width="2"/>
+            <circle cx="100" cy="100" r="26" fill="none" stroke="#00eaff" stroke-width="1.5" opacity=".6"/>
+            <text x="100" y="106" text-anchor="middle" fill="#00eaff" font-size="14" font-weight="bold" font-family="sans-serif" font-style="italic">RL</text>
+            <!-- top center marker -->
+            <rect x="96" y="6" width="8" height="20" fill="#ff2d78"/>
+          </g>
+        </svg>
+      </div>
+      <div id="steer-angle-label">0.0°</div>
+      <div id="steer-src-label">No steering signal — load DBC or Demo</div>
+    </div>
+
+    <div class="panel gauge-panel" style="flex-direction:column">
+      <div style="height:21px"></div>
+      <canvas id="gauge-speed" width="340" height="300"></canvas>
+    </div>
   </div>
 
-  <div class="live-controls">
+  <div class="digi-grid">
+    <div class="digi" id="digi-ect"> <div class="label">Coolant</div>  <div class="value" id="val-ect">—</div>  <div class="unit">°C</div></div>
+    <div class="digi" id="digi-oil"> <div class="label">Oil Temp</div> <div class="value" id="val-oil">—</div>  <div class="unit">°C</div></div>
+    <div class="digi" id="digi-iat"> <div class="label">Intake Air</div><div class="value" id="val-iat">—</div> <div class="unit">°C</div></div>
+    <div class="digi" id="digi-batt"><div class="label">Battery</div>  <div class="value" id="val-batt">—</div> <div class="unit">V</div></div>
+    <div class="digi" id="digi-fuel"><div class="label">Fuel</div>     <div class="value" id="val-fuel">—</div> <div class="unit">%</div></div>
+    <div class="digi" id="digi-tps"> <div class="label">Throttle</div> <div class="value" id="val-tps">—</div>  <div class="unit">%</div></div>
+    <div class="digi" id="digi-load"><div class="label">Load</div>     <div class="value" id="val-load">—</div> <div class="unit">%</div></div>
+    <div class="digi" id="digi-gforce"><div class="label">G-Force</div><div class="value" id="val-gforce">—</div><div class="unit">g (long.)</div></div>
+    <div class="digi" id="digi-maf"> <div class="label">MAF</div>      <div class="value" id="val-maf">—</div>  <div class="unit">g/s</div></div>
+    <div class="digi" id="digi-map"> <div class="label">Boost/MAP</div><div class="value" id="val-map">—</div>  <div class="unit">kPa</div></div>
+    <div class="digi" id="digi-stft"><div class="label">STFT</div>     <div class="value" id="val-stft">—</div> <div class="unit">%</div></div>
+    <div class="digi" id="digi-ltft"><div class="label">LTFT</div>     <div class="value" id="val-ltft">—</div> <div class="unit">%</div></div>
+    <div class="digi" id="digi-ign"> <div class="label">Ign Adv</div>  <div class="value" id="val-ign">—</div>  <div class="unit">°BTDC</div></div>
+    <div class="digi" id="digi-o2">  <div class="label">O2 B1S1</div>  <div class="value" id="val-o2">—</div>   <div class="unit">V</div></div>
+    <div class="digi" id="digi-fps"> <div class="label">Data Rate</div><div class="value good" id="val-fps">0</div><div class="unit">frames/s</div></div>
+    <div class="digi" id="digi-total"><div class="label">Frames</div>  <div class="value" id="val-total">0</div><div class="unit">total</div></div>
+  </div>
+
+  <div class="dash-bottom">
     <span id="frame-count-badge">0 frames</span>
-    <input id="filter-input" type="text" placeholder="Filter by ID: 0x7E8,0x7DF…" oninput="state.frameFilter=this.value" />
-    <button class="btn" onclick="document.getElementById('frame-tbody').innerHTML=''">Clear</button>
-    <button class="btn success" id="btn-start-log" onclick="sendCmd({cmd:'start'})" disabled title="No SD card detected">▶ Start Log</button>
-    <button class="btn danger"  id="btn-stop-log"  onclick="sendCmd({cmd:'stop'})"  disabled title="No SD card detected">■ Stop Log</button>
+    <button class="btn success" id="btn-start-log" onclick="sendCmd({cmd:'start'})" disabled title="No SD card detected">▶ Rec</button>
+    <button class="btn danger"  id="btn-stop-log"  onclick="sendCmd({cmd:'stop'})"  disabled title="No SD card detected">■ Stop</button>
     <span id="sd-indicator" style="font-size:11px;display:flex;align-items:center;gap:5px">
       <span id="sd-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text2);display:inline-block"></span>
       <span id="sd-label" style="color:var(--text2)">SD: —</span>
     </span>
+    <span style="margin-left:auto;font-size:11px;color:var(--text2);letter-spacing:1px">CHROME / EDGE — WEB SERIAL</span>
+  </div>
+</div>
+
+<!-- ═══════════════ TAB: PERFORMANCE ═══════════════ -->
+<div class="tab-panel scrollable" id="tab-perf">
+
+  <div id="launch-status">STOP THE CAR TO ARM LAUNCH TIMERS</div>
+
+  <div class="perf-grid">
+    <div class="panel timer-card">
+      <div class="t-label">0–60 km/h</div>
+      <div class="t-value" id="timer-60">--.--</div>
+      <div class="t-best" id="best-60">BEST --.--</div>
+      <div class="t-sub">seconds</div>
+    </div>
+    <div class="panel timer-card">
+      <div class="t-label">0–100 km/h</div>
+      <div class="t-value" id="timer-100">--.--</div>
+      <div class="t-best" id="best-100">BEST --.--</div>
+      <div class="t-sub">seconds</div>
+    </div>
+    <div class="panel timer-card">
+      <div class="t-label">¼ Mile</div>
+      <div class="t-value" id="timer-qm">--.--</div>
+      <div class="t-best" id="best-qm">BEST --.--</div>
+      <div class="t-sub">sec @ <span id="qm-trap">---</span> km/h trap</div>
+    </div>
+    <div class="panel timer-card">
+      <div class="t-label">100–0 Braking</div>
+      <div class="t-value" id="timer-brake">--.-</div>
+      <div class="t-best" id="best-brake">BEST --.-</div>
+      <div class="t-sub">metres</div>
+    </div>
+  </div>
+
+  <div class="panel" style="flex-shrink:0">
+    <div class="panel-title"><span class="accent">Live</span> Speed Trace</div>
+    <canvas id="perf-trace" width="1100" height="180" style="width:100%"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span class="accent">Run</span> History</div>
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <button class="btn" onclick="perfClearRuns()">Clear Runs</button>
+      <button class="btn danger" onclick="perfResetBest()">Reset Best Times</button>
+      <button class="btn primary" onclick="perfExport()">Export JSON</button>
+    </div>
+    <div style="overflow:auto;max-height:260px">
+      <table class="frame-table">
+        <thead><tr><th>#</th><th>Time</th><th>0–60 km/h</th><th>0–100 km/h</th><th>¼ mile</th><th>Trap km/h</th><th>Peak g</th></tr></thead>
+        <tbody id="run-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ TAB: HEALTH ═══════════════ -->
+<div class="tab-panel scrollable" id="tab-health">
+
+  <div class="panel health-hero">
+    <div id="health-grade">?</div>
+    <div style="flex:1;min-width:260px">
+      <div class="panel-title"><span class="accent">Vehicle</span> Health Report</div>
+      <div id="health-summary" style="color:var(--text2);font-size:14px;line-height:1.6">
+        Run a diagnostic scan to grade your car. Reads live sensor data, trouble codes (DTCs)
+        and the check-engine (MIL) status straight from the ECU.
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn primary big" id="health-scan-btn" onclick="runHealthScan()">🩺 Run Health Scan</button>
+        <button class="btn" onclick="downloadHealthReport()" id="health-dl-btn" disabled>⬇ Download Report</button>
+        <button class="btn danger" onclick="clearDtcs()" id="health-clear-btn" disabled>Clear DTCs / Reset MIL</button>
+      </div>
+      <div id="health-scan-status" style="margin-top:10px;font-size:12px;color:var(--yellow);letter-spacing:1px"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span class="accent">System</span> Checks</div>
+    <div class="health-checks" id="health-checks">
+      <div style="color:var(--text2);font-size:13px">No scan yet.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span class="accent">Diagnostic</span> Trouble Codes</div>
+    <div id="dtc-list" style="min-height:40px">
+      <div style="color:var(--text2);font-size:13px">No scan yet — DTCs will appear here.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ TAB: TELEMETRY (raw CAN stream) ═══════════════ -->
+<div class="tab-panel" id="tab-telem">
+  <div class="dash-bottom">
+    <input id="filter-input" type="text" placeholder="Filter by ID: 0x7E8,0x7DF…" oninput="state.frameFilter=this.value" />
+    <button class="btn" onclick="document.getElementById('frame-tbody').innerHTML=''">Clear</button>
     <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:12px">
       <input type="checkbox" id="pause-chk"> Pause scroll
     </label>
-    <span style="margin-left:auto;font-size:11px;color:var(--text2)">Chrome / Edge required</span>
   </div>
-
   <div id="live-frame-table-wrap">
     <table class="frame-table">
       <thead><tr>
@@ -290,11 +538,10 @@
   </div>
 </div>
 
-<!-- ═══════════════ TAB: MAP RECONSTRUCTION ═══════════════ -->
+<!-- ═══════════════ TAB: MAPS ═══════════════ -->
 <div class="tab-panel scrollable" id="tab-maps">
-
   <div class="panel" style="flex-shrink:0">
-    <div class="panel-title">Map Reconstruction — Engine Data</div>
+    <div class="panel-title"><span class="accent">Map</span> Reconstruction — Engine Data</div>
     <p style="color:var(--text2);font-size:13px;line-height:1.6;margin-bottom:12px">
       Maps are built live from OBD2 PID responses. Connect, start logging, and drive — plots populate in real time.
     </p>
@@ -303,7 +550,6 @@
       <button class="btn primary" onclick="exportMaps()">Export JSON</button>
     </div>
   </div>
-
   <div class="maps-grid">
     <div class="panel"><div class="panel-title">Throttle vs RPM</div>        <canvas id="map-tps-rpm"   width="500" height="220"></canvas></div>
     <div class="panel"><div class="panel-title">Short Fuel Trim vs RPM</div> <canvas id="map-stft-rpm"  width="500" height="220"></canvas></div>
@@ -312,7 +558,6 @@
     <div class="panel"><div class="panel-title">Intake MAP vs RPM</div>      <canvas id="map-map-rpm"   width="500" height="220"></canvas></div>
     <div class="panel"><div class="panel-title">Speed vs RPM (gear est.)</div><canvas id="map-speed-rpm" width="500" height="220"></canvas></div>
   </div>
-
   <div class="panel">
     <div class="panel-title">Captured Data Points</div>
     <div style="overflow:auto;max-height:200px">
@@ -329,7 +574,6 @@
 
 <!-- ═══════════════ TAB: DBC DECODER ═══════════════ -->
 <div class="tab-panel" id="tab-dbc">
-
   <div class="dbc-top">
     <div class="dbc-drop-zone" id="dbc-drop"
          ondragover="event.preventDefault();this.classList.add('drag-over')"
@@ -340,7 +584,6 @@
       Drop .dbc file here<br><small>or click to browse</small>
     </div>
     <input type="file" id="dbc-file-input" accept=".dbc" style="display:none" onchange="loadDbcFile(event)" />
-
     <div style="flex:1">
       <div class="panel-title">Loaded DBC</div>
       <div id="dbc-status" style="color:var(--text2);font-size:13px">No DBC file loaded</div>
@@ -352,10 +595,16 @@
         Messages: <span id="dbc-msg-count" class="chip blue">0</span>
         &nbsp;Signals: <span id="dbc-sig-count" class="chip blue">0</span>
       </div>
+      <div style="margin-top:12px" class="config-row">
+        <label>Steering angle signal (for dashboard wheel)</label>
+        <select id="steer-signal-select" onchange="setSteerSignal(this.value)" style="max-width:340px">
+          <option value="">— auto-detect from DBC —</option>
+        </select>
+        <span class="hint">Signals with "steer" in the name are auto-detected when a DBC loads.</span>
+      </div>
     </div>
   </div>
-
-  <div style="flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px">
+  <div style="flex:1;overflow:auto;border:1px solid var(--border)">
     <table class="frame-table">
       <thead><tr>
         <th>Message</th><th>ID</th><th>Signal</th><th>Start</th><th>Len</th>
@@ -368,26 +617,20 @@
 
 <!-- ═══════════════ TAB: LOG VIEWER ═══════════════ -->
 <div class="tab-panel" id="tab-logs">
-
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
     <button class="btn" onclick="document.getElementById('log-file-input').click()">Open CSV Log</button>
     <input type="file" id="log-file-input" accept=".csv,.can" style="display:none" onchange="loadLogFile(event)" />
     <button class="btn" onclick="clearLog()">Clear</button>
-    <input type="text" id="log-filter" placeholder="Filter lines…"
-           style="background:var(--bg3);border:1px solid var(--border);color:var(--text);
-                  padding:5px 10px;border-radius:5px;font-family:var(--mono);font-size:12px;width:200px"
-           oninput="filterLog()" />
+    <input type="text" id="log-filter" placeholder="Filter lines…" style="font-family:var(--mono);font-size:12px;width:200px" oninput="filterLog()" />
     <span id="log-line-count" style="color:var(--text2);font-size:12px"></span>
   </div>
-
   <div class="console-box" id="log-console">
-    <div class="log-line info">// Open a CSV log file from the SD card, or watch live frames on the Live Data tab</div>
+    <div class="log-line info">// Open a CSV log file from the SD card, or watch live frames on the Telemetry tab</div>
   </div>
 </div>
 
 <!-- ═══════════════ TAB: CONFIGURATION ═══════════════ -->
 <div class="tab-panel scrollable" id="tab-config">
-
   <div class="panel" style="max-width:700px">
     <div class="panel-title">Device Configuration</div>
     <div class="config-grid">
@@ -408,36 +651,40 @@
       </div>
       <div class="config-row">
         <label>Log CSV</label>
-        <select id="cfg-logcsv">
-          <option value="true" selected>Enabled</option>
-          <option value="false">Disabled</option>
-        </select>
+        <select id="cfg-logcsv"><option value="true" selected>Enabled</option><option value="false">Disabled</option></select>
         <span class="hint">Human-readable .csv on SD</span>
       </div>
       <div class="config-row">
         <label>Log Binary</label>
-        <select id="cfg-logbin">
-          <option value="true" selected>Enabled</option>
-          <option value="false">Disabled</option>
-        </select>
+        <select id="cfg-logbin"><option value="true" selected>Enabled</option><option value="false">Disabled</option></select>
         <span class="hint">Compact .can binary on SD</span>
       </div>
       <div class="config-row">
         <label>Stream over Serial</label>
-        <select id="cfg-stream">
-          <option value="true" selected>Enabled</option>
-          <option value="false">Disabled</option>
-        </select>
+        <select id="cfg-stream"><option value="true" selected>Enabled</option><option value="false">Disabled</option></select>
         <span class="hint">Send JSON frames to this web app</span>
+      </div>
+      <div class="config-row">
+        <label>RTC (Real-Time Clock)</label>
+        <select id="cfg-rtc">
+          <option value="false" selected>Disabled — use millis() for timestamps</option>
+          <option value="true">Enabled — use PCF8523 RTC for timestamps</option>
+        </select>
+        <span class="hint">Enable only if Adalogger FeatherWing RTC battery is fitted</span>
       </div>
       <div class="config-row">
         <label>CAN ID Filter (hex, comma-sep)</label>
         <input type="text" id="cfg-filter" placeholder="e.g. 0x7E8,0x7DF" />
         <span class="hint">Leave blank to log all IDs</span>
       </div>
+      <div class="config-row">
+        <label>Tach Redline (RPM)</label>
+        <input type="text" id="cfg-redline" value="6500" />
+        <span class="hint">Shift light + tach red zone. Saved in this browser.</span>
+      </div>
     </div>
     <div style="margin-top:16px;display:flex;gap:10px">
-      <button class="btn primary" onclick="applyConfig()">Apply & Save to Device</button>
+      <button class="btn primary" onclick="applyConfig()">Apply &amp; Save to Device</button>
       <button class="btn" onclick="sendCmd({cmd:'status'})">↓ Read from Device</button>
     </div>
     <div id="config-status" style="margin-top:10px;font-size:12px;color:var(--green)"></div>
@@ -452,7 +699,6 @@ Connect to device to read status…</pre>
   <div class="panel" style="max-width:700px">
     <div class="panel-title">SD Card Management</div>
     <div style="display:flex;flex-direction:column;gap:14px">
-
       <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
           <div style="font-weight:600;margin-bottom:4px">USB Storage Mode</div>
@@ -461,12 +707,11 @@ Connect to device to read status…</pre>
             or delete log files directly from your computer. The device disconnects from
             the web app — reconnect after ejecting the drive.
           </div>
-          <button class="btn" id="msc-btn2" onclick="enterStorageMode()" style="border-color:var(--accent);color:var(--accent)">
+          <button class="btn" id="msc-btn2" onclick="enterStorageMode()" style="border-color:var(--cyan);color:var(--cyan)">
             💾 Enter USB Storage Mode
           </button>
         </div>
       </div>
-
       <div style="border-top:1px solid var(--border);padding-top:14px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
           <div style="font-weight:600;margin-bottom:4px">Format SD Card</div>
@@ -477,7 +722,6 @@ Connect to device to read status…</pre>
           <button class="btn danger" onclick="formatSdCard()">🗑 Format SD Card (Erase All)</button>
         </div>
       </div>
-
       <div id="sd-status" style="font-size:12px;color:var(--green);display:none"></div>
     </div>
   </div>
@@ -485,20 +729,19 @@ Connect to device to read status…</pre>
 
 <!-- ═══════════════ TAB: SERIAL CONSOLE ═══════════════ -->
 <div class="tab-panel" id="tab-serial">
-
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0">
     <span style="font-size:12px;color:var(--text2)">Raw serial — send JSON commands directly to the device</span>
-    <div style="margin-left:auto;display:flex;gap:8px">
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="document.getElementById('serial-console').innerHTML=''">Clear</button>
       <button class="btn" onclick="sendCmd({cmd:'status'})">Status</button>
       <button class="btn" onclick="sendCmd({cmd:'ls'})">List Files</button>
+      <button class="btn" onclick="sendCmd({cmd:'dtc'})">Read DTCs</button>
+      <button class="btn" onclick="sendCmd({cmd:'vin'})">VIN</button>
       <button class="btn success" onclick="sendCmd({cmd:'start'})">▶ Start</button>
       <button class="btn danger"  onclick="sendCmd({cmd:'stop'})">■ Stop</button>
     </div>
   </div>
-
   <div class="console-box" id="serial-console"></div>
-
   <div class="serial-input-row">
     <input id="serial-input" type="text" placeholder='{"cmd":"status"}  — press Enter to send'
            onkeydown="if(event.key==='Enter') sendRawSerial()" />
@@ -508,8 +751,8 @@ Connect to device to read status…</pre>
 
 <!-- ═══════════════ JAVASCRIPT ═══════════════ -->
 <script>
-// ── Tab switching ─────────────────────────────────────────────────────────────
-// Purely class-based: add/remove .active. No inline style manipulation.
+// ════════════════════════════ CORE ══════════════════════════════════════════
+// ── Tab switching ──
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const target = btn.dataset.tab;
@@ -520,23 +763,22 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-// ── State ─────────────────────────────────────────────────────────────────────
+// ── State ──
 const state = {
-  port: null,
-  reader: null,
-  connected: false,
-  frameFilter: '',
-  totalFrames: 0,
-  fpsCounter: 0,
-  fps: 0,
-  dbcMessages: {},
-  mapData: [],
+  port: null, reader: null, connected: false,
+  frameFilter: '', totalFrames: 0, fpsCounter: 0, fps: 0,
+  dbcMessages: {}, mapData: [], logLines: [],
   liveVals: { rpm:null, speed:null, tps:null, ect:null, maf:null,
-               stft:null, ltft:null, map:null, o2:null, ign:null },
-  logLines: [],
+              stft:null, ltft:null, map:null, o2:null, ign:null,
+              oil:null, iat:null, batt:null, fuel:null, load:null, ambient:null },
+  milOn: null, dtcCount: null,
+  steer: { signalKey: '', angle: 0, auto: true, source: '' },
+  redline: +(localStorage.getItem('rl_redline') || 6500),
+  demo: false, demoTimer: null,
 };
+document.getElementById('cfg-redline').value = state.redline;
 
-// ── Serial connection ─────────────────────────────────────────────────────────
+// ── Serial connection ──
 async function connectSerial() {
   if (!('serial' in navigator)) {
     alert('Web Serial API not supported.\nPlease use Google Chrome or Microsoft Edge.');
@@ -557,42 +799,34 @@ async function connectSerial() {
 
 async function disconnectSerial() {
   state.connected = false;
-  // Cancel the reader first — this causes the read() promise to resolve with
-  // done:true, the loop exits, and releaseLock() is called in the finally block.
-  // Only then can we safely close the port.
   try { if (state.reader) await state.reader.cancel(); } catch(_) {}
   state.reader = null;
-  // Small yield to let the read loop's finally{releaseLock()} run
   await new Promise(r => setTimeout(r, 50));
   try { if (state.port) await state.port.close(); } catch(_) {}
   state.port = null;
-  rxBuf = '';   // clear any partial line buffer
+  rxBuf = '';
   setConnStatus(false);
   appendSerial('sys', '🔌 Disconnected — ready to reconnect');
 }
 
 function setConnStatus(on) {
   document.getElementById('status-dot').className    = 'status-dot' + (on ? ' connected' : '');
-  document.getElementById('conn-label').textContent  = on ? 'Connected' : 'Disconnected';
+  document.getElementById('conn-label').textContent  = on ? 'Online' : 'Offline';
   document.getElementById('connect-btn').style.display    = on ? 'none' : '';
   document.getElementById('disconnect-btn').style.display = on ? '' : 'none';
-  document.getElementById('msc-btn').style.display         = on ? '' : 'none';
+  document.getElementById('msc-btn').style.display        = on ? '' : 'none';
   if (!on) {
     document.getElementById('device-chip').textContent = 'No Device';
-    // Reset SD indicator to unknown state on disconnect
     const dot = document.getElementById('sd-dot');
-    dot.style.background = 'var(--text2)';
-    dot.style.boxShadow  = 'none';
+    dot.style.background = 'var(--text2)'; dot.style.boxShadow = 'none';
     document.getElementById('sd-label').style.color = 'var(--text2)';
     document.getElementById('sd-label').textContent = 'SD: —';
     document.getElementById('btn-start-log').disabled = true;
     document.getElementById('btn-stop-log').disabled  = true;
-    document.getElementById('btn-start-log').title = 'No SD card detected';
-    document.getElementById('btn-stop-log').title  = 'No SD card detected';
   }
 }
 
-// ── SD card: USB Mass Storage mode ───────────────────────────────────────────
+// ── SD card: USB Mass Storage mode ──
 async function enterStorageMode() {
   if (!state.connected) { alert('Connect to the device first.'); return; }
   const ok = confirm(
@@ -603,23 +837,16 @@ async function enterStorageMode() {
   if (!ok) return;
   setSdStatus('Sending storage mode command…', 'var(--yellow)');
   await sendCmd({ cmd: 'msc' });
-  // Give firmware a moment to process, then disconnect — device will re-enumerate as MSC
   setTimeout(async () => {
     await disconnectSerial();
     setSdStatus('✓ Device is now in USB Storage Mode. Eject the drive when done, then reconnect.', 'var(--green)');
   }, 800);
 }
 
-// ── SD card: Format ───────────────────────────────────────────────────────────
 async function formatSdCard() {
   if (!state.connected) { alert('Connect to the device first.'); return; }
-  const ok = confirm(
-    '⚠ WARNING: This will PERMANENTLY ERASE ALL log files on the SD card.\n\n' +
-    'This cannot be undone. Are you sure?'
-  );
-  if (!ok) return;
-  const ok2 = confirm('Are you absolutely sure? All logs will be deleted.');
-  if (!ok2) return;
+  if (!confirm('⚠ WARNING: This will PERMANENTLY ERASE ALL log files on the SD card.\n\nThis cannot be undone. Are you sure?')) return;
+  if (!confirm('Are you absolutely sure? All logs will be deleted.')) return;
   setSdStatus('Formatting SD card… (this may take 10–30 seconds)', 'var(--yellow)');
   await sendCmd({ cmd: 'format' });
 }
@@ -631,14 +858,11 @@ function setSdStatus(msg, color) {
   el.style.display = msg ? '' : 'none';
 }
 
-// ── Read loop ─────────────────────────────────────────────────────────────────
-// Reads directly from port.readable — no pipeTo() so the lock is cleanly
-// releasable on disconnect, allowing the port to be re-opened later.
+// ── Read loop ──
 let rxBuf = '';
 const dec = new TextDecoder();
 
 async function startReading() {
-  // Get reader directly — never use pipeTo() if you need clean reconnect
   state.reader = state.port.readable.getReader();
   try {
     while (state.connected) {
@@ -655,7 +879,6 @@ async function startReading() {
   } catch (e) {
     if (state.connected) appendSerial('sys', '⚠ Read error: ' + e.message);
   } finally {
-    // Always release the lock so the port can be closed and re-opened
     try { state.reader.releaseLock(); } catch(_) {}
   }
 }
@@ -666,8 +889,6 @@ function processRx(line) {
       const obj = JSON.parse(line);
       if ('t' in obj && 'id' in obj) { handleFrame(obj); return; }
       if ('status' in obj || 'ok' in obj) { updateDeviceInfo(obj); }
-      // SD card command responses
-      if (obj.cmd === 'msc')    { /* handled by enterStorageMode timeout */ }
       if (obj.cmd === 'format') {
         if (obj.ok) setSdStatus('✓ SD card formatted successfully. New logging session started.', 'var(--green)');
         else        setSdStatus('✗ Format failed: ' + (obj.msg || 'unknown error'), 'var(--red)');
@@ -679,7 +900,7 @@ function processRx(line) {
     addLogLine('info', line);
 }
 
-// ── Send command ──────────────────────────────────────────────────────────────
+// ── Send command ──
 async function sendCmd(obj) {
   const txt = JSON.stringify(obj) + '\n';
   appendSerial('tx', JSON.stringify(obj));
@@ -698,16 +919,19 @@ async function sendRawSerial() {
   catch { sendCmd(txt); }
 }
 
-// ── CAN frame handler ─────────────────────────────────────────────────────────
+// ── CAN frame handler ──
 let fpsTimer = null;
 function handleFrame(f) {
   state.totalFrames++;
   state.fpsCounter++;
-  document.getElementById('val-total').textContent       = state.totalFrames;
+  document.getElementById('val-total').textContent = state.totalFrames;
   document.getElementById('frame-count-badge').textContent = state.totalFrames + ' frames';
 
   const id = parseInt(f.id, 16);
-  if (id >= 0x7E8 && id <= 0x7EF) decodeObd2(f);
+  if (id >= 0x7E8 && id <= 0x7EF) {
+    Health.onEcuFrame(id, f.d);   // ISO-TP reassembly (DTCs, VIN)
+    decodeObd2(f);
+  }
 
   const sig = decodeFrameDbc(id, f.d);
   addFrameRow(f, sig);
@@ -721,7 +945,7 @@ function handleFrame(f) {
   }
 }
 
-// ── OBD2 PID decoder ─────────────────────────────────────────────────────────
+// ── OBD2 PID decoder ──
 function decodeObd2(f) {
   const b = f.d.split(' ').map(h => parseInt(h, 16));
   if (b.length < 3 || b[1] !== 0x41) return;
@@ -732,20 +956,799 @@ function decodeObd2(f) {
     if (el) el.textContent = val;
   };
   switch (pid) {
-    case 0x0C: set('rpm',   ((A*256+B)/4).toFixed(0),         'val-rpm');   break;
-    case 0x0D: set('speed', A,                                 'val-speed'); break;
-    case 0x11: set('tps',   (A*100/255).toFixed(1),            'val-tps');   break;
-    case 0x05: set('ect',   (A-40),                            'val-ect');   break;
-    case 0x10: set('maf',   ((A*256+B)/100).toFixed(2),        'val-maf');   break;
-    case 0x06: set('stft',  ((A-128)*100/128).toFixed(1),      'val-stft');  break;
-    case 0x07: set('ltft',  ((A-128)*100/128).toFixed(1),      'val-ltft');  break;
-    case 0x0B: set('map',   A,                                 'val-map');   break;
-    case 0x14: set('o2',    (A/200).toFixed(3),                'val-o2');    break;
-    case 0x0E: set('ign',   (A/2-64).toFixed(1),               'val-ign');   break;
+    case 0x0C: set('rpm',   ((A*256+B)/4).toFixed(0), null); Gauges.setRpm((A*256+B)/4); break;
+    case 0x0D: set('speed', A, null); Gauges.setSpeed(A); Perf.onSpeed(A, performance.now()); break;
+    case 0x11: set('tps',   (A*100/255).toFixed(1),       'val-tps');  break;
+    case 0x05: set('ect',   (A-40),                       'val-ect');  break;
+    case 0x10: set('maf',   ((A*256+B)/100).toFixed(2),   'val-maf');  break;
+    case 0x06: set('stft',  ((A-128)*100/128).toFixed(1), 'val-stft'); break;
+    case 0x07: set('ltft',  ((A-128)*100/128).toFixed(1), 'val-ltft'); break;
+    case 0x0B: set('map',   A,                            'val-map');  break;
+    case 0x14: set('o2',    (A/200).toFixed(3),           'val-o2');   break;
+    case 0x0E: set('ign',   (A/2-64).toFixed(1),          'val-ign');  break;
+    case 0x04: set('load',  (A*100/255).toFixed(0),       'val-load'); break;
+    case 0x0F: set('iat',   (A-40),                       'val-iat');  break;
+    case 0x2F: set('fuel',  (A*100/255).toFixed(0),       'val-fuel'); break;
+    case 0x42: set('batt',  ((A*256+B)/1000).toFixed(2),  'val-batt'); break;
+    case 0x5C: set('oil',   (A-40),                       'val-oil');  break;
+    case 0x46: set('ambient',(A-40),                      null);       break;
+    case 0x01:
+      state.milOn    = !!(A & 0x80);
+      state.dtcCount = A & 0x7F;
+      break;
   }
+  checkWarnings();
   if (state.liveVals.rpm !== null) recordMapPoint();
 }
 
+// ── Warning engine ──
+const WARN_RULES = [
+  { key:'ect',  digi:'digi-ect',  msg:'ENGINE COOLANT TEMP TOO HIGH', test:v => v > 105 },
+  { key:'oil',  digi:'digi-oil',  msg:'ENGINE OIL TEMP TOO HIGH',     test:v => v > 125 },
+  { key:'iat',  digi:'digi-iat',  msg:'INTAKE AIR TEMP HIGH',         test:v => v > 65  },
+  { key:'batt', digi:'digi-batt', msg:'BATTERY VOLTAGE LOW',          test:v => v > 0 && v < 11.8 },
+  { key:'batt', digi:'digi-batt', msg:'CHARGING VOLTAGE HIGH',        test:v => v > 15.2 },
+  { key:'fuel', digi:'digi-fuel', msg:'FUEL LEVEL LOW',               test:v => v > 0 && v < 10 },
+  { key:'stft', digi:'digi-stft', msg:'SHORT FUEL TRIM OUT OF RANGE', test:v => Math.abs(v) > 20 },
+  { key:'ltft', digi:'digi-ltft', msg:'LONG FUEL TRIM OUT OF RANGE',  test:v => Math.abs(v) > 20 },
+  { key:'rpm',  digi:null,        msg:'ENGINE OVER-REV',              test:v => v > state.redline },
+];
+
+function checkWarnings() {
+  const active = [];
+  const warnDigis = new Set();
+  for (const r of WARN_RULES) {
+    const v = parseFloat(state.liveVals[r.key]);
+    if (!isNaN(v) && r.test(v)) {
+      active.push(r.msg);
+      if (r.digi) warnDigis.add(r.digi);
+    }
+  }
+  if (state.milOn) active.push('CHECK ENGINE LIGHT ON (MIL)');
+
+  document.querySelectorAll('.digi').forEach(d => d.classList.toggle('warn', warnDigis.has(d.id)));
+  const banner = document.getElementById('warning-banner');
+  if (active.length) {
+    document.getElementById('warn-items').innerHTML =
+      active.map(m => `<span>▸ ${m}</span>`).join('');
+    banner.classList.add('show');
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+// ── Steering visualisation ──
+function updateSteerAngle(deg, source) {
+  if (isNaN(deg)) return;
+  deg = Math.max(-540, Math.min(540, deg));
+  state.steer.angle = deg;
+  document.getElementById('steer-svg-wrap').style.transform = `rotate(${deg}deg)`;
+  document.getElementById('steer-angle-label').textContent =
+    (deg > 0 ? '→ ' : deg < 0 ? '← ' : '') + Math.abs(deg).toFixed(1) + '°';
+  if (source) document.getElementById('steer-src-label').textContent = source;
+}
+
+function setSteerSignal(key) {
+  state.steer.signalKey = key;
+  state.steer.auto = !key;
+  if (key) {
+    const [msgId, sigName] = key.split('::');
+    document.getElementById('steer-src-label').textContent = `DBC: ${sigName}`;
+  }
+}
+
+// ── Demo mode — full simulated drive, no hardware needed ──
+function toggleDemo() {
+  state.demo = !state.demo;
+  const btn = document.getElementById('demo-btn');
+  if (state.demo) {
+    btn.textContent = '⏹ Demo';
+    btn.classList.add('primary');
+    document.getElementById('device-chip').textContent = '🎮 DEMO MODE';
+    startDemo();
+  } else {
+    btn.textContent = '🎮 Demo';
+    btn.classList.remove('primary');
+    document.getElementById('device-chip').textContent = 'No Device';
+    clearInterval(state.demoTimer);
+    state.demoTimer = null;
+  }
+}
+
+const demoSim = {
+  t: 0, speed: 0, rpm: 850, phase: 'idle', phaseT: 0,
+  ect: 62, oil: 55, fuel: 47, overheat: false, gear: 1,
+};
+
+function demoFrame(pid, bytes) {
+  const d = ['04', '41', pid.toString(16).padStart(2,'0').toUpperCase(),
+             ...bytes.map(v => Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,'0').toUpperCase())];
+  while (d.length < 8) d.push('00');
+  handleFrame({ t: Math.round(demoSim.t*1000), id: '0x7E8', ext:0, fd:0, dlc:8, d: d.join(' ') });
+}
+
+function startDemo() {
+  const dt = 0.06;
+  state.demoTimer = setInterval(() => {
+    const s = demoSim;
+    s.t += dt; s.phaseT += dt;
+
+    // Drive cycle state machine
+    if (s.phase === 'idle'    && s.phaseT > 4)  { s.phase = 'launch'; s.phaseT = 0; }
+    if (s.phase === 'launch') {
+      s.speed += (28 - s.speed*0.11) * dt * 1.35;           // strong pull, tapering
+      if (s.speed >= 132) { s.phase = 'cruise'; s.phaseT = 0; }
+    }
+    if (s.phase === 'cruise'  && s.phaseT > 6)  { s.phase = 'brake'; s.phaseT = 0; }
+    if (s.phase === 'brake') {
+      s.speed -= 32 * dt;
+      if (s.speed <= 0) { s.speed = 0; s.phase = 'idle'; s.phaseT = 0; }
+    }
+    if (s.phase === 'cruise') s.speed += Math.sin(s.t*0.8) * 0.15;
+
+    // Gear + RPM model
+    const gearRatios = [0, 120, 65, 45, 34, 28];
+    let gear = 1;
+    for (let g=1; g<=5; g++) if (s.speed * gearRatios[g] < 6300) { gear = g; break; }
+    s.rpm = s.speed <= 0.5 ? 850 + Math.sin(s.t*3)*30
+          : Math.min(7200, 900 + s.speed * gearRatios[gear] * (s.phase==='launch' ? 1.0 : 0.85));
+
+    // Temps drift up; periodic overheat demo every ~50 s
+    s.ect = Math.min(s.ect + dt*0.55, 96);
+    s.oil = Math.min(s.oil + dt*0.5, 104);
+    s.overheat = (s.t % 50) > 42;
+    const ect = s.overheat ? 112 : s.ect;
+    s.fuel = Math.max(4, 47 - s.t*0.02);
+
+    // Steering: gentle slalom while moving
+    const steer = s.speed > 2 ? Math.sin(s.t*0.7) * 120 * Math.min(1, 40/(s.speed+5)) : 0;
+    updateSteerAngle(steer, 'DEMO — simulated steering');
+
+    // Emit PID frames through the real pipeline
+    const rpm4 = s.rpm*4;
+    demoFrame(0x0C, [rpm4/256, rpm4%256]);
+    demoFrame(0x0D, [s.speed]);
+    if (Math.round(s.t/dt) % 5 === 0) {
+      const tps = s.phase==='launch' ? 88+Math.random()*10 : s.phase==='cruise' ? 18 : 0;
+      demoFrame(0x11, [tps*255/100]);
+      demoFrame(0x05, [ect+40]);
+      demoFrame(0x5C, [s.oil+40]);
+      demoFrame(0x0F, [38+40]);
+      demoFrame(0x10, [(s.rpm*3.2)/256, (s.rpm*3.2)%256]);
+      demoFrame(0x0B, [s.phase==='launch' ? 95 : 32]);
+      demoFrame(0x06, [128 + (Math.random()*8-4)*1.28]);
+      demoFrame(0x07, [128 + 3*1.28]);
+      demoFrame(0x14, [ (0.45+0.4*Math.sin(s.t*6)) * 200 ]);
+      demoFrame(0x0E, [((12 + s.rpm/700) + 64) * 2]);     // ~13-22 °BTDC
+      demoFrame(0x04, [(s.phase==='launch'?92:s.phase==='cruise'?35:22)*255/100]);
+      demoFrame(0x2F, [s.fuel*255/100]);
+      const mv = 14180 + Math.random()*80;
+      demoFrame(0x42, [mv/256, mv%256]);
+      demoFrame(0x46, [29+40]);
+      demoFrame(0x01, [0x82, 0x07, 0xE5, 0x00]);  // MIL on + 2 DTCs (demo)
+    }
+  }, 60);
+}
+// ════════════════════════════ GAUGES ════════════════════════════════════════
+const Gauges = (() => {
+  const anim = {
+    speed: { cur: 0, target: 0 },
+    rpm:   { cur: 0, target: 0 },
+  };
+
+  function drawGauge(canvasId, cfg, value) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const cx = W/2, cy = H/2 + 14, R = Math.min(W, H) / 2 - 14;
+
+    ctx.clearRect(0, 0, W, H);
+
+    const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;      // 270° sweep
+    const frac = Math.max(0, Math.min(1, (value - cfg.min) / (cfg.max - cfg.min)));
+    const av = a0 + frac * (a1 - a0);
+    const redFrac = (cfg.redFrom - cfg.min) / (cfg.max - cfg.min);
+    const aRed = a0 + redFrac * (a1 - a0);
+
+    // outer ring
+    ctx.beginPath(); ctx.arc(cx, cy, R+8, a0-0.03, a1+0.03);
+    ctx.strokeStyle = '#141b30'; ctx.lineWidth = 3; ctx.stroke();
+
+    // background track
+    ctx.beginPath(); ctx.arc(cx, cy, R-6, a0, a1);
+    ctx.strokeStyle = '#0d1322'; ctx.lineWidth = 14; ctx.stroke();
+
+    // red zone track
+    ctx.beginPath(); ctx.arc(cx, cy, R-6, aRed, a1);
+    ctx.strokeStyle = 'rgba(255,32,56,.28)'; ctx.lineWidth = 14; ctx.stroke();
+
+    // value arc with glow
+    const inRed = value >= cfg.redFrom;
+    const col = inRed ? '#ff2038' : cfg.color;
+    ctx.save();
+    ctx.shadowColor = col; ctx.shadowBlur = 18;
+    ctx.beginPath(); ctx.arc(cx, cy, R-6, a0, av);
+    const grad = ctx.createLinearGradient(cx-R, cy, cx+R, cy);
+    grad.addColorStop(0, cfg.color2 || cfg.color); grad.addColorStop(1, col);
+    ctx.strokeStyle = grad; ctx.lineWidth = 14; ctx.lineCap = 'butt'; ctx.stroke();
+    ctx.restore();
+
+    // ticks + labels
+    ctx.font = '700 12px Rajdhani, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const majors = cfg.majors;
+    for (let i = 0; i <= majors; i++) {
+      const f = i / majors;
+      const a = a0 + f * (a1 - a0);
+      const v = cfg.min + f * (cfg.max - cfg.min);
+      const isRed = v >= cfg.redFrom;
+      const c1x = cx + Math.cos(a) * (R - 18), c1y = cy + Math.sin(a) * (R - 18);
+      const c2x = cx + Math.cos(a) * (R - 27), c2y = cy + Math.sin(a) * (R - 27);
+      ctx.beginPath(); ctx.moveTo(c1x, c1y); ctx.lineTo(c2x, c2y);
+      ctx.strokeStyle = isRed ? '#ff2038' : '#39507f'; ctx.lineWidth = 2.5; ctx.stroke();
+      const lx = cx + Math.cos(a) * (R - 43), ly = cy + Math.sin(a) * (R - 43);
+      ctx.fillStyle = isRed ? '#ff2038' : '#7d8db0';
+      ctx.fillText(cfg.tickLabel(v), lx, ly);
+      // minor ticks
+      if (i < majors) {
+        for (let m = 1; m < 5; m++) {
+          const fm = (i + m/5) / majors;
+          const am = a0 + fm * (a1 - a0);
+          const m1x = cx + Math.cos(am) * (R - 18), m1y = cy + Math.sin(am) * (R - 18);
+          const m2x = cx + Math.cos(am) * (R - 23), m2y = cy + Math.sin(am) * (R - 23);
+          ctx.beginPath(); ctx.moveTo(m1x, m1y); ctx.lineTo(m2x, m2y);
+          ctx.strokeStyle = '#22304f'; ctx.lineWidth = 1; ctx.stroke();
+        }
+      }
+    }
+
+    // needle
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(av);
+    ctx.shadowColor = col; ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(-10, -3); ctx.lineTo(R - 30, -1.2); ctx.lineTo(R - 26, 0); ctx.lineTo(R - 30, 1.2); ctx.lineTo(-10, 3);
+    ctx.closePath();
+    ctx.fillStyle = col; ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, Math.PI*2);
+    ctx.fillStyle = '#0d1424'; ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+
+    // digital value
+    ctx.font = `900 italic ${cfg.bigFont}px Orbitron, sans-serif`;
+    ctx.fillStyle = col;
+    ctx.shadowColor = col; ctx.shadowBlur = 16;
+    ctx.fillText(cfg.fmt(value), cx, cy + R*0.52);
+    ctx.shadowBlur = 0;
+    ctx.font = '700 12px Rajdhani, sans-serif';
+    ctx.fillStyle = '#7d8db0';
+    ctx.fillText(cfg.unit, cx, cy + R*0.52 + 24);
+    ctx.font = '700 13px Rajdhani, sans-serif';
+    ctx.fillStyle = '#7d8db0';
+    ctx.fillText(cfg.label, cx, cy - R*0.38);
+  }
+
+  const CFG_SPEED = {
+    min: 0, max: 260, redFrom: 240, majors: 13, color: '#00eaff', color2: '#0077ff',
+    label: 'SPEED', unit: 'km/h', bigFont: 40,
+    tickLabel: v => v.toFixed(0), fmt: v => v.toFixed(0),
+  };
+  const cfgRpm = () => ({
+    min: 0, max: Math.ceil((state.redline + 1500)/1000)*1000, redFrom: state.redline,
+    majors: Math.ceil((state.redline + 1500)/1000), color: '#ff9d00', color2: '#ffd166',
+    label: 'RPM ×1000', unit: 'rpm', bigFont: 34,
+    tickLabel: v => (v/1000).toFixed(0), fmt: v => v.toFixed(0),
+  });
+
+  function updateShiftLights(rpm) {
+    const leds = document.querySelectorAll('.shift-led');
+    const start = state.redline * 0.72, end = state.redline;
+    const frac = (rpm - start) / (end - start);
+    const lit = Math.floor(frac * leds.length + 0.0001);
+    leds.forEach((led, i) => {
+      led.classList.toggle('on', i < lit);
+      led.classList.toggle('flash', rpm >= end);
+    });
+  }
+
+  function loop() {
+    for (const k of ['speed', 'rpm']) {
+      const a = anim[k];
+      a.cur += (a.target - a.cur) * 0.18;
+      if (Math.abs(a.target - a.cur) < 0.05) a.cur = a.target;
+    }
+    drawGauge('gauge-speed', CFG_SPEED, anim.speed.cur);
+    drawGauge('gauge-rpm', cfgRpm(), anim.rpm.cur);
+    updateShiftLights(anim.rpm.cur);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  return {
+    setSpeed: v => { anim.speed.target = v; },
+    setRpm:   v => { anim.rpm.target = v; },
+  };
+})();
+// ════════════════════════════ PERFORMANCE ═══════════════════════════════════
+const Perf = (() => {
+  const QM_METRES = 402.336;
+  const p = {
+    lastV: null, lastT: null,
+    armed: false, running: false, launchT: null,
+    t60: null, t100: null, qmT: null, qmTrap: null,
+    dist: 0, peakG: 0, gSmooth: 0,
+    zeroSince: null,
+    // braking
+    brk: { active: false, startT: null, dist: 0, result: null },
+    trace: [], runs: [],
+    best: JSON.parse(localStorage.getItem('rl_best') || '{}'),
+  };
+
+  const $ = id => document.getElementById(id);
+  const fmtT = v => v == null ? '--.--' : v.toFixed(2);
+
+  function refreshBest() {
+    $('best-60').textContent    = 'BEST ' + (p.best.t60   != null ? p.best.t60.toFixed(2) + 's' : '--.--');
+    $('best-100').textContent   = 'BEST ' + (p.best.t100  != null ? p.best.t100.toFixed(2) + 's' : '--.--');
+    $('best-qm').textContent    = 'BEST ' + (p.best.qm    != null ? p.best.qm.toFixed(2) + 's' : '--.--');
+    $('best-brake').textContent = 'BEST ' + (p.best.brake != null ? p.best.brake.toFixed(1) + 'm' : '--.-');
+  }
+  refreshBest();
+
+  function setStatus(txt, cls) {
+    const el = $('launch-status');
+    el.textContent = txt;
+    el.className = cls || '';
+  }
+
+  function lerpT(v0, v1, t0, t1, target) {
+    if (v1 === v0) return t1;
+    return t0 + (target - v0) / (v1 - v0) * (t1 - t0);
+  }
+
+  function onSpeed(v, t) {   // v in km/h, t in ms (performance.now)
+    // ── g-force (longitudinal) ──
+    if (p.lastV !== null && t > p.lastT) {
+      const dt = (t - p.lastT) / 1000;
+      if (dt > 0.02 && dt < 2) {
+        const a = ((v - p.lastV) / 3.6) / dt;         // m/s²
+        p.gSmooth = p.gSmooth * 0.7 + (a / 9.81) * 0.3;
+        $('val-gforce').textContent = p.gSmooth.toFixed(2);
+        if (p.running) p.peakG = Math.max(p.peakG, p.gSmooth);
+      }
+    }
+
+    // ── trace ──
+    p.trace.push({ t, v });
+    while (p.trace.length && t - p.trace[0].t > 60000) p.trace.shift();
+    drawTrace();
+
+    // ── arming / launch ──
+    if (v <= 0.5) {
+      if (p.zeroSince === null) p.zeroSince = t;
+      if (!p.armed && !p.running && t - p.zeroSince > 400) {
+        p.armed = true;
+        setStatus('◤ ARMED — FLOOR IT ◥', 'armed');
+      }
+      // finalize an aborted/completed run once we're stationary again
+      if (p.running) endRun(t);
+    } else {
+      p.zeroSince = null;
+    }
+
+    if (p.armed && v > 0.5 && p.lastV !== null && p.lastV <= 0.5) {
+      // LAUNCH
+      p.armed = false; p.running = true;
+      p.launchT = lerpT(p.lastV, v, p.lastT, t, 0.51);
+      p.t60 = p.t100 = p.qmT = p.qmTrap = null;
+      p.dist = 0; p.peakG = 0;
+      $('timer-60').className = 't-value running';
+      $('timer-100').className = 't-value running';
+      $('timer-qm').className = 't-value running';
+      setStatus('◤ LAUNCHED ◥', 'launched');
+    }
+
+    if (p.running && p.lastV !== null) {
+      const dt = (t - p.lastT) / 1000;
+      p.dist += ((v + p.lastV) / 2) / 3.6 * dt;       // metres
+
+      if (p.t60 === null && v >= 60) {
+        p.t60 = (lerpT(p.lastV, v, p.lastT, t, 60) - p.launchT) / 1000;
+        $('timer-60').textContent = p.t60.toFixed(2);
+        $('timer-60').className = 't-value done';
+      }
+      if (p.t100 === null && v >= 100) {
+        p.t100 = (lerpT(p.lastV, v, p.lastT, t, 100) - p.launchT) / 1000;
+        $('timer-100').textContent = p.t100.toFixed(2);
+        $('timer-100').className = 't-value done';
+      }
+      if (p.qmT === null && p.dist >= QM_METRES) {
+        p.qmT = (t - p.launchT) / 1000;
+        p.qmTrap = v;
+        $('timer-qm').textContent = p.qmT.toFixed(2);
+        $('qm-trap').textContent = v.toFixed(0);
+        $('timer-qm').className = 't-value done';
+      }
+      // live tick display for un-finished timers
+      const el = (t - p.launchT) / 1000;
+      if (p.t60  === null) $('timer-60').textContent  = el.toFixed(2);
+      if (p.t100 === null) $('timer-100').textContent = el.toFixed(2);
+      if (p.qmT  === null) $('timer-qm').textContent  = el.toFixed(2);
+    }
+
+    // ── 100-0 braking ──
+    if (p.lastV !== null) {
+      if (!p.brk.active && p.lastV >= 100 && v < 100) {
+        p.brk.active = true;
+        p.brk.startT = lerpT(p.lastV, v, p.lastT, t, 100);
+        p.brk.dist = 0;
+      }
+      if (p.brk.active) {
+        const dt = (t - p.lastT) / 1000;
+        p.brk.dist += ((v + p.lastV) / 2) / 3.6 * dt;
+        if (v > p.lastV + 2 || v >= 100) {
+          p.brk.active = false;                        // accelerated again — abort
+        } else if (v <= 0.5) {
+          p.brk.active = false;
+          p.brk.result = p.brk.dist;
+          $('timer-brake').textContent = p.brk.dist.toFixed(1);
+          $('timer-brake').className = 't-value done';
+          if (p.best.brake == null || p.brk.dist < p.best.brake) {
+            p.best.brake = p.brk.dist; saveBest();
+          }
+        }
+      }
+    }
+
+    p.lastV = v; p.lastT = t;
+  }
+
+  function endRun(t) {
+    p.running = false;
+    if (p.t60 !== null || p.t100 !== null || p.qmT !== null) {
+      const run = {
+        time: new Date().toLocaleTimeString(),
+        t60: p.t60, t100: p.t100, qm: p.qmT, trap: p.qmTrap,
+        peakG: p.peakG,
+      };
+      p.runs.unshift(run);
+      addRunRow(run);
+      let newBest = false;
+      if (p.t60  !== null && (p.best.t60  == null || p.t60  < p.best.t60))  { p.best.t60  = p.t60;  newBest = true; }
+      if (p.t100 !== null && (p.best.t100 == null || p.t100 < p.best.t100)) { p.best.t100 = p.t100; newBest = true; }
+      if (p.qmT  !== null && (p.best.qm   == null || p.qmT  < p.best.qm))   { p.best.qm   = p.qmT;  newBest = true; }
+      if (newBest) saveBest();
+      setStatus(newBest ? '★ NEW RECORD ★' : 'RUN COMPLETE — STOP TO RE-ARM', newBest ? 'armed' : '');
+    } else {
+      setStatus('STOP THE CAR TO ARM LAUNCH TIMERS', '');
+    }
+    // un-finished timers back to --.--
+    if (p.t60  === null) { $('timer-60').textContent  = '--.--'; $('timer-60').className  = 't-value'; }
+    if (p.t100 === null) { $('timer-100').textContent = '--.--'; $('timer-100').className = 't-value'; }
+    if (p.qmT  === null) { $('timer-qm').textContent  = '--.--'; $('timer-qm').className  = 't-value'; }
+  }
+
+  function saveBest() {
+    localStorage.setItem('rl_best', JSON.stringify(p.best));
+    refreshBest();
+  }
+
+  function addRunRow(r) {
+    const tbody = $('run-tbody');
+    const tr = document.createElement('tr');
+    const f = (v, d=2, u='') => v == null ? '—' : v.toFixed(d) + u;
+    tr.innerHTML = `<td>${p.runs.length}</td><td>${r.time}</td>
+      <td style="color:var(--cyan);font-weight:700">${f(r.t60)}</td>
+      <td style="color:var(--cyan);font-weight:700">${f(r.t100)}</td>
+      <td>${f(r.qm)}</td><td>${r.trap==null?'—':r.trap.toFixed(0)}</td>
+      <td>${f(r.peakG)}</td>`;
+    tbody.insertBefore(tr, tbody.firstChild);
+  }
+
+  function drawTrace() {
+    const canvas = $('perf-trace');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+    const vMax = 180;
+    // 60 / 100 reference lines
+    for (const [v, col] of [[60, '#2bff8833'], [100, '#ff2d7833']]) {
+      const y = H - (v / vMax) * H;
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      ctx.fillStyle = col.slice(0, 7); ctx.font = '11px monospace';
+      ctx.fillText(v + ' km/h', 6, y - 4);
+    }
+    if (p.trace.length < 2) return;
+    const t1 = p.trace[p.trace.length - 1].t, t0 = t1 - 60000;
+    ctx.strokeStyle = '#00eaff'; ctx.lineWidth = 2;
+    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 6;
+    ctx.beginPath();
+    p.trace.forEach((pt, i) => {
+      const x = ((pt.t - t0) / 60000) * W;
+      const y = H - (Math.min(pt.v, vMax) / vMax) * H;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  return {
+    onSpeed,
+    clearRuns() { p.runs = []; $('run-tbody').innerHTML = ''; },
+    resetBest() {
+      if (!confirm('Reset all best times?')) return;
+      p.best = {}; localStorage.removeItem('rl_best'); refreshBest();
+    },
+    export() {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(
+        [JSON.stringify({ best: p.best, runs: p.runs }, null, 2)],
+        { type: 'application/json' }));
+      a.download = 'performance_runs_' + Date.now() + '.json';
+      a.click();
+    },
+  };
+})();
+function perfClearRuns() { Perf.clearRuns(); }
+function perfResetBest() { Perf.resetBest(); }
+function perfExport()    { Perf.export(); }
+// ════════════════════════════ HEALTH ════════════════════════════════════════
+const DTC_DB = {
+  P0011:'Camshaft position timing over-advanced (Bank 1)', P0016:'Crank/cam position correlation (Bank 1)',
+  P0101:'MAF sensor range/performance', P0102:'MAF circuit low input', P0113:'IAT sensor circuit high',
+  P0116:'Coolant temp sensor range/performance', P0117:'Coolant temp circuit low', P0118:'Coolant temp circuit high',
+  P0128:'Coolant thermostat below regulating temp', P0131:'O2 sensor low voltage (B1S1)',
+  P0133:'O2 sensor slow response (B1S1)', P0135:'O2 sensor heater circuit (B1S1)',
+  P0171:'System too lean (Bank 1)', P0172:'System too rich (Bank 1)',
+  P0174:'System too lean (Bank 2)', P0201:'Injector circuit — cylinder 1',
+  P0300:'Random/multiple cylinder misfire', P0301:'Cylinder 1 misfire', P0302:'Cylinder 2 misfire',
+  P0303:'Cylinder 3 misfire', P0304:'Cylinder 4 misfire', P0325:'Knock sensor circuit (Bank 1)',
+  P0335:'Crankshaft position sensor circuit', P0340:'Camshaft position sensor circuit',
+  P0401:'EGR insufficient flow', P0420:'Catalyst efficiency below threshold (Bank 1)',
+  P0430:'Catalyst efficiency below threshold (Bank 2)', P0440:'EVAP system malfunction',
+  P0442:'EVAP small leak detected', P0455:'EVAP large leak detected',
+  P0500:'Vehicle speed sensor', P0505:'Idle control system malfunction',
+  P0562:'System voltage low', P0563:'System voltage high',
+  P0601:'Internal control module memory checksum', P0700:'Transmission control system (MIL request)',
+  C1201:'ABS/traction control fault', U0100:'Lost communication with ECM/PCM',
+  U0121:'Lost communication with ABS module', B1000:'ECU internal fault',
+};
+
+const Health = (() => {
+  const iso = {};                 // per-CAN-id ISO-TP reassembly buffers
+  let collecting = false;
+  let found = { stored: [], pending: [], vin: null };
+  let lastReport = null;
+
+  function onEcuFrame(id, hex) {
+    const b = hex.split(' ').map(h => parseInt(h, 16));
+    if (!b.length) return;
+    const pci = b[0] >> 4;
+    let payload = null;
+    if (pci === 0) {                       // single frame
+      payload = b.slice(1, 1 + (b[0] & 0x0F));
+    } else if (pci === 1) {                // first frame
+      iso[id] = { len: ((b[0] & 0x0F) << 8) | b[1], data: b.slice(2), next: 1 };
+    } else if (pci === 2 && iso[id]) {     // consecutive frame
+      iso[id].data.push(...b.slice(1));
+      if (iso[id].data.length >= iso[id].len) {
+        payload = iso[id].data.slice(0, iso[id].len);
+        delete iso[id];
+      }
+    }
+    if (payload) decodeService(payload);
+  }
+
+  function decodeService(p) {
+    if (!collecting || !p.length) return;
+    if (p[0] === 0x43 || p[0] === 0x47) {          // mode 03 / 07 response
+      const target = p[0] === 0x43 ? found.stored : found.pending;
+      // p[1] = DTC count, then 2 bytes per code
+      for (let i = 2; i + 1 < p.length; i += 2) {
+        if (p[i] === 0 && p[i+1] === 0) continue;
+        const code = dtcFromBytes(p[i], p[i+1]);
+        if (!target.includes(code)) target.push(code);
+      }
+    } else if (p[0] === 0x49 && p[1] === 0x02) {   // mode 09 PID 02: VIN
+      found.vin = p.slice(3).filter(c => c >= 32 && c < 127)
+                   .map(c => String.fromCharCode(c)).join('').trim() || null;
+    }
+  }
+
+  function dtcFromBytes(b1, b2) {
+    const sys = ['P','C','B','U'][b1 >> 6];
+    return sys + ((b1 >> 4) & 3).toString() +
+           (b1 & 0xF).toString(16).toUpperCase() +
+           (b2 >> 4).toString(16).toUpperCase() +
+           (b2 & 0xF).toString(16).toUpperCase();
+  }
+
+  // ── The scan ──
+  async function scan() {
+    if (!state.connected && !state.demo) {
+      alert('Connect the device (or hit Demo) first.');
+      return;
+    }
+    const btn = document.getElementById('health-scan-btn');
+    btn.disabled = true;
+    document.getElementById('health-scan-status').textContent = 'SCANNING… reading ECU, DTCs and sensors';
+    collecting = true;
+    found = { stored: [], pending: [], vin: null };
+
+    if (state.connected) {
+      await sendCmd({ cmd: 'dtc' });
+      setTimeout(() => sendCmd({ cmd: 'vin' }), 400);
+    }
+    if (state.demo) {
+      // Simulate ECU DTC + VIN replies (multi-frame, exercised through the real ISO-TP path)
+      setTimeout(() => {
+        onEcuFrame(0x7E8, '06 43 02 03 01 04 20 00');                 // P0301 + P0420
+        onEcuFrame(0x7E8, '10 14 49 02 01 57 44 44');                 // VIN FF
+        onEcuFrame(0x7E8, '21 52 45 44 4C 49 4E 45');
+        onEcuFrame(0x7E8, '22 32 30 32 36 4E 46 53');
+      }, 900);
+    }
+
+    setTimeout(() => { collecting = false; buildReport(); btn.disabled = false; }, 3200);
+  }
+
+  // ── Report generation ──
+  function buildReport() {
+    const v = k => parseFloat(state.liveVals[k]);
+    const has = k => state.liveVals[k] !== null && !isNaN(v(k));
+    const checks = [];
+    const add = (name, status, msg) => checks.push({ name, status, msg });
+
+    // Coolant
+    if (!has('ect')) add('Coolant Temperature', 'na', 'No data');
+    else if (v('ect') > 105) add('Coolant Temperature', 'fail', v('ect') + '°C — OVERHEATING, stop the engine');
+    else if (v('ect') > 98)  add('Coolant Temperature', 'warn', v('ect') + '°C — running hot');
+    else if (v('ect') < 60)  add('Coolant Temperature', 'warn', v('ect') + '°C — engine not at operating temp yet');
+    else add('Coolant Temperature', 'ok', v('ect') + '°C — normal');
+
+    // Oil temp
+    if (!has('oil')) add('Oil Temperature', 'na', 'No data (PID 0x5C unsupported on many cars)');
+    else if (v('oil') > 125) add('Oil Temperature', 'fail', v('oil') + '°C — dangerously hot');
+    else if (v('oil') > 115) add('Oil Temperature', 'warn', v('oil') + '°C — high');
+    else add('Oil Temperature', 'ok', v('oil') + '°C — normal');
+
+    // Battery / charging
+    if (!has('batt')) add('Battery / Charging', 'na', 'No data');
+    else if (v('batt') < 11.8) add('Battery / Charging', 'fail', v('batt') + ' V — battery low / charging fault');
+    else if (v('batt') < 13.2) add('Battery / Charging', 'warn', v('batt') + ' V — weak charging while running');
+    else if (v('batt') > 15.2) add('Battery / Charging', 'fail', v('batt') + ' V — overcharging, check alternator');
+    else add('Battery / Charging', 'ok', v('batt') + ' V — healthy');
+
+    // Fuel trims
+    for (const [k, label] of [['stft','Short-Term Fuel Trim'], ['ltft','Long-Term Fuel Trim']]) {
+      if (!has(k)) { add(label, 'na', 'No data'); continue; }
+      const t = v(k);
+      if (Math.abs(t) > 20) add(label, 'fail', t + '% — severe ' + (t > 0 ? 'lean' : 'rich') + ' condition (vacuum leak / injector / MAF?)');
+      else if (Math.abs(t) > 10) add(label, 'warn', t + '% — ECU correcting ' + (t > 0 ? 'lean' : 'rich'));
+      else add(label, 'ok', t + '% — within range');
+    }
+
+    // Intake air temp
+    if (!has('iat')) add('Intake Air Temperature', 'na', 'No data');
+    else if (v('iat') > 65) add('Intake Air Temperature', 'warn', v('iat') + '°C — heat-soaked intake');
+    else add('Intake Air Temperature', 'ok', v('iat') + '°C');
+
+    // O2 sensor
+    if (!has('o2')) add('O2 Sensor (B1S1)', 'na', 'No data');
+    else if (v('o2') < 0.05 || v('o2') > 0.95) add('O2 Sensor (B1S1)', 'warn', v('o2') + ' V — pegged, possible sensor/mixture issue');
+    else add('O2 Sensor (B1S1)', 'ok', v('o2') + ' V — switching normally');
+
+    // Fuel level
+    if (has('fuel')) {
+      if (v('fuel') < 10) add('Fuel Level', 'warn', v('fuel') + '% — low');
+      else add('Fuel Level', 'ok', v('fuel') + '%');
+    } else add('Fuel Level', 'na', 'No data');
+
+    // MIL
+    if (state.milOn === null) add('Check Engine Light (MIL)', 'na', 'No data');
+    else if (state.milOn) add('Check Engine Light (MIL)', 'fail', 'ON — ' + (state.dtcCount ?? '?') + ' stored code(s)');
+    else add('Check Engine Light (MIL)', 'ok', 'Off');
+
+    // DTCs
+    const dtcs = found.stored;
+    if (dtcs.length) add('Trouble Codes', 'fail', dtcs.length + ' stored DTC(s) — see below');
+    else if (found.pending.length) add('Trouble Codes', 'warn', found.pending.length + ' pending DTC(s)');
+    else add('Trouble Codes', 'ok', 'None found');
+
+    // ── Grade ──
+    let score = 100;
+    for (const c of checks) {
+      if (c.status === 'fail') score -= 22;
+      if (c.status === 'warn') score -= 7;
+    }
+    score -= dtcs.length * 8;
+    score = Math.max(0, score);
+    const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
+
+    // ── Render ──
+    const gradeEl = document.getElementById('health-grade');
+    gradeEl.textContent = grade;
+    gradeEl.className = 'g' + grade;
+
+    const failN = checks.filter(c => c.status === 'fail').length;
+    const warnN = checks.filter(c => c.status === 'warn').length;
+    document.getElementById('health-summary').innerHTML =
+      `<b style="color:var(--text)">Score ${score}/100.</b> ` +
+      (failN ? `<span style="color:var(--red)">${failN} critical issue(s)</span>, ` : '') +
+      (warnN ? `<span style="color:var(--yellow)">${warnN} warning(s)</span>, ` : '') +
+      `${checks.filter(c=>c.status==='ok').length} systems OK.` +
+      (found.vin ? `<br>VIN: <span style="font-family:var(--mono);color:var(--cyan)">${found.vin}</span>` : '') +
+      `<br><span style="font-size:11px">Scanned ${new Date().toLocaleString()}${state.demo ? ' — DEMO DATA' : ''}</span>`;
+
+    const icons = { ok:'✅', warn:'⚠️', fail:'⛔', na:'➖' };
+    document.getElementById('health-checks').innerHTML = checks.map(c =>
+      `<div class="hcheck ${c.status}"><span class="ic">${icons[c.status]}</span>
+        <div><div class="h-name">${c.name}</div><div class="h-msg">${c.msg}</div></div></div>`).join('');
+
+    const dtcHtml = [];
+    for (const code of dtcs)
+      dtcHtml.push(`<div class="dtc-row"><span class="dtc-code">${code}</span><span class="dtc-desc">${DTC_DB[code] || 'See service manual'}</span></div>`);
+    for (const code of found.pending)
+      dtcHtml.push(`<div class="dtc-row"><span class="dtc-code" style="color:var(--yellow)">${code}</span><span class="dtc-desc">(pending) ${DTC_DB[code] || 'See service manual'}</span></div>`);
+    document.getElementById('dtc-list').innerHTML = dtcHtml.length ? dtcHtml.join('') :
+      '<div style="color:var(--green);font-size:14px;padding:8px">✅ No trouble codes — clean bill of health</div>';
+
+    document.getElementById('health-scan-status').textContent = '';
+    document.getElementById('health-dl-btn').disabled = false;
+    document.getElementById('health-clear-btn').disabled = !(dtcs.length || state.milOn);
+
+    lastReport = { grade, score, checks, dtcs, pending: found.pending, vin: found.vin,
+                   when: new Date().toISOString(), vals: { ...state.liveVals } };
+  }
+
+  function download() {
+    if (!lastReport) return;
+    const r = lastReport;
+    const icons = { ok:'PASS', warn:'WARN', fail:'FAIL', na:'N/A' };
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Vehicle Health Report</title>
+<style>body{font-family:system-ui,sans-serif;background:#0a0d16;color:#e8f1ff;padding:40px;max-width:800px;margin:auto}
+h1{color:#00eaff;font-style:italic}.grade{font-size:72px;font-weight:900;font-style:italic}
+table{border-collapse:collapse;width:100%;margin:20px 0}td,th{border:1px solid #1d2843;padding:8px 12px;text-align:left}
+th{background:#101525;color:#7d8db0;text-transform:uppercase;font-size:11px;letter-spacing:2px}
+.ok{color:#2bff88}.warn{color:#ffd166}.fail{color:#ff2038}.na{color:#7d8db0}</style></head><body>
+<h1>OBD2//REDLINE — Vehicle Health Report</h1>
+<p>${new Date(r.when).toLocaleString()}${r.vin ? ' · VIN: ' + r.vin : ''}</p>
+<div class="grade ${r.grade === 'A' ? 'ok' : r.grade === 'F' ? 'fail' : 'warn'}">${r.grade} <small style="font-size:24px">${r.score}/100</small></div>
+<table><tr><th>System</th><th>Status</th><th>Detail</th></tr>
+${r.checks.map(c => `<tr><td>${c.name}</td><td class="${c.status}">${icons[c.status]}</td><td>${c.msg}</td></tr>`).join('')}
+</table>
+<h2>Trouble Codes</h2>
+${r.dtcs.length || r.pending.length ?
+  '<table><tr><th>Code</th><th>Description</th></tr>' +
+  r.dtcs.map(c => `<tr><td class="fail">${c}</td><td>${DTC_DB[c] || 'See service manual'}</td></tr>`).join('') +
+  r.pending.map(c => `<tr><td class="warn">${c} (pending)</td><td>${DTC_DB[c] || 'See service manual'}</td></tr>`).join('') +
+  '</table>' : '<p class="ok">No trouble codes stored.</p>'}
+<p style="color:#7d8db0;font-size:12px">Generated by OBD2//REDLINE CAN Logger. Informational only — not a substitute for professional inspection.</p>
+</body></html>`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    a.download = 'health_report_' + Date.now() + '.html';
+    a.click();
+  }
+
+  async function clear() {
+    if (!confirm('Clear all DTCs and reset the check-engine light?\n\nOnly do this after noting the codes — freeze-frame data is erased too.')) return;
+    if (state.connected) await sendCmd({ cmd: 'cleardtc' });
+    if (state.demo) { found = { stored: [], pending: [], vin: found.vin }; state.milOn = false; state.dtcCount = 0; }
+    document.getElementById('health-scan-status').textContent = 'CLEAR SENT — re-run the scan to verify';
+  }
+
+  return { onEcuFrame, scan, download, clear };
+})();
+function runHealthScan()        { Health.scan(); }
+function downloadHealthReport() { Health.download(); }
+function clearDtcs()            { Health.clear(); }
+// ════════════════════════════ MAPS / DBC / LOGS / CONFIG ════════════════════
 function recordMapPoint() {
   const v = state.liveVals;
   const pt = {
@@ -759,7 +1762,7 @@ function recordMapPoint() {
   addMapRow(pt);
 }
 
-// ── Frame table ───────────────────────────────────────────────────────────────
+// ── Frame table ──
 function addFrameRow(f, sig) {
   if (state.frameFilter) {
     const filters = state.frameFilter.split(',').map(s => s.trim().toLowerCase());
@@ -772,24 +1775,26 @@ function addFrameRow(f, sig) {
   tr.className = 'new-frame';
   tr.innerHTML =
     `<td>${f.t}</td>` +
-    `<td style="color:var(--accent);font-weight:600">${f.id}</td>` +
+    `<td style="color:var(--cyan);font-weight:600">${f.id}</td>` +
     `<td>${f.ext}</td><td>${f.fd}</td><td>${f.dlc}</td>` +
     `<td>${f.d}</td>` +
     `<td style="color:var(--green);font-size:11px">${sig||''}</td>`;
   tbody.insertBefore(tr, tbody.firstChild);
 }
 
-// ── Map canvases ──────────────────────────────────────────────────────────────
+// ── Map canvases ──
 const MAP_CFG = {
-  'map-tps-rpm':   { x:'rpm', y:'tps',   xl:'RPM', yl:'TPS %',     color:'#00d4ff' },
-  'map-stft-rpm':  { x:'rpm', y:'stft',  xl:'RPM', yl:'STFT %',    color:'#ff6b35' },
-  'map-ign-rpm':   { x:'rpm', y:'ign',   xl:'RPM', yl:'Ign Adv°',  color:'#ffd740' },
-  'map-maf-rpm':   { x:'rpm', y:'maf',   xl:'RPM', yl:'MAF g/s',   color:'#00e676' },
-  'map-map-rpm':   { x:'rpm', y:'map',   xl:'RPM', yl:'MAP kPa',   color:'#e040fb' },
-  'map-speed-rpm': { x:'rpm', y:'speed', xl:'RPM', yl:'Speed km/h',color:'#69f0ae' },
+  'map-tps-rpm':   { x:'rpm', y:'tps',   xl:'RPM', yl:'TPS %',     color:'#00eaff' },
+  'map-stft-rpm':  { x:'rpm', y:'stft',  xl:'RPM', yl:'STFT %',    color:'#ff9d00' },
+  'map-ign-rpm':   { x:'rpm', y:'ign',   xl:'RPM', yl:'Ign Adv°',  color:'#ffd166' },
+  'map-maf-rpm':   { x:'rpm', y:'maf',   xl:'RPM', yl:'MAF g/s',   color:'#2bff88' },
+  'map-map-rpm':   { x:'rpm', y:'map',   xl:'RPM', yl:'MAP kPa',   color:'#b44cff' },
+  'map-speed-rpm': { x:'rpm', y:'speed', xl:'RPM', yl:'Speed km/h',color:'#ff2d78' },
 };
 
 function drawMaps() {
+  // only redraw when the maps tab is visible — saves CPU while driving
+  if (!document.getElementById('tab-maps').classList.contains('active')) return;
   for (const [id, cfg] of Object.entries(MAP_CFG)) {
     const canvas = document.getElementById(id);
     if (!canvas) continue;
@@ -798,7 +1803,7 @@ function drawMaps() {
     const p = { t:20, r:20, b:36, l:48 };
 
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#0e1117'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
 
     const pts = state.mapData.filter(d => !isNaN(d[cfg.x]) && !isNaN(d[cfg.y]));
     if (pts.length < 2) {
@@ -813,14 +1818,11 @@ function drawMaps() {
     const tx = v => p.l + (v-xMin)/(xMax-xMin)*(W-p.l-p.r);
     const ty = v => H-p.b - (v-yMin)/(yMax-yMin)*(H-p.t-p.b);
 
-    // grid
-    ctx.strokeStyle = '#1e2535'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#141b30'; ctx.lineWidth = 1;
     for (let i=0;i<=4;i++) { const y=p.t+i*(H-p.t-p.b)/4; ctx.beginPath(); ctx.moveTo(p.l,y); ctx.lineTo(W-p.r,y); ctx.stroke(); }
-    // axes
-    ctx.strokeStyle = '#2a3347'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#1d2843'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(p.l,p.t); ctx.lineTo(p.l,H-p.b); ctx.lineTo(W-p.r,H-p.b); ctx.stroke();
-    // labels
-    ctx.fillStyle = '#8899aa'; ctx.font = '11px monospace';
+    ctx.fillStyle = '#7d8db0'; ctx.font = '11px monospace';
     ctx.textAlign = 'center';  ctx.fillText(cfg.xl, W/2, H-4);
     ctx.textAlign = 'right';
     ctx.fillText(yMax.toFixed(1), p.l-4, p.t+4);
@@ -830,12 +1832,10 @@ function drawMaps() {
     ctx.fillText(xMax.toFixed(0), W-p.r, H-p.b+14);
     ctx.save(); ctx.translate(12,H/2); ctx.rotate(-Math.PI/2);
     ctx.fillText(cfg.yl, 0, 0); ctx.restore();
-    // line
     ctx.strokeStyle = cfg.color; ctx.lineWidth = 1.5;
     ctx.beginPath();
     pts.forEach((d,i) => i===0 ? ctx.moveTo(tx(d[cfg.x]),ty(d[cfg.y])) : ctx.lineTo(tx(d[cfg.x]),ty(d[cfg.y])));
     ctx.stroke();
-    // latest dot
     const last = pts[pts.length-1];
     ctx.fillStyle = cfg.color; ctx.beginPath();
     ctx.arc(tx(last[cfg.x]), ty(last[cfg.y]), 4, 0, Math.PI*2); ctx.fill();
@@ -862,7 +1862,7 @@ function addMapRow(pt) {
   tbody.insertBefore(tr, tbody.firstChild);
 }
 
-// ── DBC decoder ───────────────────────────────────────────────────────────────
+// ── DBC decoder ──
 function loadDbcFile(e) {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
@@ -891,17 +1891,38 @@ function parseDbc(text, name) {
   const tbody = document.getElementById('dbc-tbody');
   tbody.innerHTML = '';
   let mc=0, sc=0;
+  const steerSel = document.getElementById('steer-signal-select');
+  steerSel.innerHTML = '<option value="">— auto-detect from DBC —</option>';
+  let autoSteer = null;
   for (const msg of Object.values(state.dbcMessages)) {
     mc++;
     for (const sig of msg.signals) {
       sc++;
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td style="color:var(--accent)">${msg.name}</td><td>0x${msg.id.toString(16).toUpperCase()}</td>
+      tr.innerHTML = `<td style="color:var(--cyan)">${msg.name}</td><td>0x${msg.id.toString(16).toUpperCase()}</td>
         <td>${sig.name}</td><td>${sig.startBit}</td><td>${sig.length}</td>
         <td>${sig.factor}</td><td>${sig.offset}</td><td>${sig.min}</td><td>${sig.max}</td>
         <td>${sig.unit}</td><td id="dv-${msg.id}-${sig.name}" style="color:var(--green)">—</td>`;
       tbody.appendChild(tr);
+      // steering signal candidates
+      const key = msg.id + '::' + sig.name;
+      const opt = document.createElement('option');
+      opt.value = key; opt.textContent = `${msg.name} / ${sig.name}`;
+      steerSel.appendChild(opt);
+      if (!autoSteer && /steer/i.test(sig.name) && /ang|pos|whl|wheel/i.test(sig.name)) autoSteer = key;
+      if (!autoSteer && /steer_angle|steering_angle/i.test(sig.name)) autoSteer = key;
     }
+  }
+  // fallback: any signal containing "steer"
+  if (!autoSteer) {
+    for (const msg of Object.values(state.dbcMessages))
+      for (const sig of msg.signals)
+        if (/steer/i.test(sig.name)) { autoSteer = msg.id + '::' + sig.name; break; }
+  }
+  if (autoSteer && state.steer.auto) {
+    state.steer.signalKey = autoSteer;
+    steerSel.value = autoSteer;
+    document.getElementById('steer-src-label').textContent = 'DBC: ' + autoSteer.split('::')[1];
   }
   document.getElementById('dbc-msg-count').textContent = mc;
   document.getElementById('dbc-sig-count').textContent = sc;
@@ -912,13 +1933,17 @@ function decodeFrameDbc(id, hex) {
   const msg = state.dbcMessages[id];
   if (!msg || !hex) return '';
   const bytes = hex.split(' ').map(h=>parseInt(h,16));
-  return msg.signals.slice(0,3).map(sig => {
+  const parts = [];
+  for (const sig of msg.signals) {
     const raw = extractBits(bytes, sig.startBit, sig.length, sig.byteOrder, sig.signed);
     const val = raw * sig.factor + sig.offset;
     const el = document.getElementById(`dv-${id}-${sig.name}`);
     if (el) el.textContent = val.toFixed(2) + ' ' + sig.unit;
-    return `${sig.name}=${val.toFixed(1)}${sig.unit}`;
-  }).join(' | ');
+    if (state.steer.signalKey === id + '::' + sig.name)
+      updateSteerAngle(val, 'DBC: ' + sig.name);
+    if (parts.length < 3) parts.push(`${sig.name}=${val.toFixed(1)}${sig.unit}`);
+  }
+  return parts.join(' | ');
 }
 
 function extractBits(bytes, start, len, order, signed) {
@@ -941,10 +1966,12 @@ function extractBits(bytes, start, len, order, signed) {
 
 function clearDbc() {
   state.dbcMessages={};
+  state.steer.signalKey=''; state.steer.auto=true;
   document.getElementById('dbc-tbody').innerHTML='';
   document.getElementById('dbc-msg-count').textContent='0';
   document.getElementById('dbc-sig-count').textContent='0';
   document.getElementById('dbc-status').textContent='Cleared';
+  document.getElementById('steer-src-label').textContent='No steering signal — load DBC or Demo';
 }
 
 function loadBuiltinObd2() {
@@ -962,7 +1989,7 @@ BO_ 2015 OBD2_Response: 8 Vector__XXX
 `, 'Built-in OBD2 PIDs');
 }
 
-// ── Log viewer ────────────────────────────────────────────────────────────────
+// ── Log viewer ──
 function loadLogFile(e) {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
@@ -995,7 +2022,7 @@ function addLogLine(cls, txt) {
   con.scrollTop = con.scrollHeight;
 }
 
-// ── Config tab ────────────────────────────────────────────────────────────────
+// ── Config tab ──
 function applyConfig() {
   const cmd = {
     cmd:     'config',
@@ -1004,52 +2031,56 @@ function applyConfig() {
     logcsv:  document.getElementById('cfg-logcsv').value === 'true',
     logbin:  document.getElementById('cfg-logbin').value === 'true',
     stream:  document.getElementById('cfg-stream').value === 'true',
+    rtc:     document.getElementById('cfg-rtc').value === 'true',
   };
   const fRaw = document.getElementById('cfg-filter').value.trim();
   if (fRaw) cmd.filter = fRaw.split(',').map(s=>parseInt(s.trim(),16)).filter(n=>!isNaN(n));
   sendCmd(cmd);
+  // local UI settings
+  const rl = parseInt(document.getElementById('cfg-redline').value);
+  if (!isNaN(rl) && rl >= 3000 && rl <= 12000) {
+    state.redline = rl;
+    localStorage.setItem('rl_redline', rl);
+  }
   const st = document.getElementById('config-status');
-  st.textContent = '✅ Config sent';
+  st.textContent = '✅ Config sent (redline saved locally)';
   setTimeout(() => st.textContent = '', 3000);
 }
 
 function updateDeviceInfo(obj) {
   document.getElementById('device-info').textContent =
     Object.entries(obj).map(([k,v])=>`${k.padEnd(14)}: ${v}`).join('\n');
-  document.getElementById('device-chip').textContent =
-    obj.status ? (obj.status === 'logging' ? '🔴 Logging' : '⏹ Idle') : 'Device';
+  if (!state.demo)
+    document.getElementById('device-chip').textContent =
+      obj.status ? (obj.status === 'logging' ? '🔴 Logging' : '⏹ Idle') : 'Device';
 
-  // SD card status indicator + enable/disable log buttons
+  if ('rtc' in obj) {
+    const rtcEnabled = obj.rtc === true || obj.rtc === 'true' || obj.rtc === 1;
+    document.getElementById('cfg-rtc').value = rtcEnabled ? 'true' : 'false';
+  }
+
   if ('sd' in obj) {
     const sdPresent = obj.sd === true || obj.sd === 'true' || obj.sd === 1;
     const dot   = document.getElementById('sd-dot');
     const label = document.getElementById('sd-label');
     const btnStart = document.getElementById('btn-start-log');
     const btnStop  = document.getElementById('btn-stop-log');
-
     if (sdPresent) {
-      dot.style.background   = 'var(--green)';
-      dot.style.boxShadow    = '0 0 6px var(--green)';
-      label.style.color      = 'var(--green)';
-      label.textContent      = 'SD: Ready';
-      btnStart.disabled      = false;
-      btnStop.disabled       = false;
-      btnStart.title         = '';
-      btnStop.title          = '';
+      dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 6px var(--green)';
+      label.style.color = 'var(--green)'; label.textContent = 'SD: Ready';
+      btnStart.disabled = false; btnStop.disabled = false;
+      btnStart.title = ''; btnStop.title = '';
     } else {
-      dot.style.background   = 'var(--red)';
-      dot.style.boxShadow    = '0 0 6px var(--red)';
-      label.style.color      = 'var(--red)';
-      label.textContent      = 'SD: No Card';
-      btnStart.disabled      = true;
-      btnStop.disabled       = true;
-      btnStart.title         = 'No SD card detected — insert a FAT32-formatted card';
-      btnStop.title          = 'No SD card detected';
+      dot.style.background = 'var(--red)'; dot.style.boxShadow = '0 0 6px var(--red)';
+      label.style.color = 'var(--red)'; label.textContent = 'SD: No Card';
+      btnStart.disabled = true; btnStop.disabled = true;
+      btnStart.title = 'No SD card detected — insert a FAT32-formatted card';
+      btnStop.title  = 'No SD card detected';
     }
   }
 }
 
-// ── Serial console ────────────────────────────────────────────────────────────
+// ── Serial console ──
 function appendSerial(dir, txt) {
   const con = document.getElementById('serial-console');
   const d = document.createElement('div');
@@ -1059,11 +2090,14 @@ function appendSerial(dir, txt) {
   con.scrollTop = con.scrollHeight;
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
+// ── Utilities ──
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ── Init message ──────────────────────────────────────────────────────────────
-appendSerial('sys', 'OBD2CanLogger ready — connect device via USB (Chrome/Edge required)');
+// redraw maps when switching to the maps tab
+document.querySelector('[data-tab="maps"]').addEventListener('click', () => setTimeout(drawMaps, 50));
+
+// ── Init ──
+appendSerial('sys', 'OBD2//REDLINE ready — connect device via USB (Chrome/Edge) or hit 🎮 Demo');
 </script>
 </body>
 </html>

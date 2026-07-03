@@ -72,9 +72,14 @@ struct Config {
 Config gConfig;
 
 // ─── OBD2 PID Poller ──────────────────────────────────────────────────────────
-const uint8_t OBD2_PIDS[] = {
-  0x0C,  // Engine RPM
-  0x0D,  // Vehicle speed
+// FAST PIDs are interleaved into every other poll slot so speed/RPM update at
+// ~8 Hz — needed for accurate 0-60 / 0-100 km/h acceleration timing in the
+// web dashboard. SLOW PIDs round-robin in the remaining slots.
+const uint8_t OBD2_FAST_PIDS[] = {
+  0x0D,  // Vehicle speed   (high rate — accel timers)
+  0x0C,  // Engine RPM      (high rate — tach/shift light)
+};
+const uint8_t OBD2_SLOW_PIDS[] = {
   0x11,  // Throttle position
   0x05,  // Coolant temp
   0x0E,  // Timing advance (ignition)
@@ -85,12 +90,20 @@ const uint8_t OBD2_PIDS[] = {
   0x14,  // O2 sensor B1S1 voltage
   0x04,  // Calculated engine load
   0x0F,  // Intake air temperature
+  0x2F,  // Fuel tank level
+  0x42,  // Control module voltage (battery)
+  0x5C,  // Engine oil temperature
+  0x46,  // Ambient air temperature
+  0x01,  // Monitor status (MIL light + DTC count)
 };
-const uint8_t OBD2_PID_COUNT = sizeof(OBD2_PIDS) / sizeof(OBD2_PIDS[0]);
+const uint8_t OBD2_FAST_COUNT = sizeof(OBD2_FAST_PIDS) / sizeof(OBD2_FAST_PIDS[0]);
+const uint8_t OBD2_SLOW_COUNT = sizeof(OBD2_SLOW_PIDS) / sizeof(OBD2_SLOW_PIDS[0]);
 
-uint8_t  pidIndex          = 0;
+uint8_t  fastIndex         = 0;
+uint8_t  slowIndex         = 0;
+bool     pollFastSlot      = true;   // alternate fast/slow slots
 uint32_t lastPidPollMs     = 0;
-uint32_t pidPollIntervalMs = 80;
+uint32_t pidPollIntervalMs = 30;     // 30 ms → speed & RPM each ~8 Hz
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 RTC_PCF8523 rtc;
@@ -143,6 +156,8 @@ void stopLoggingSession();
 void enterMscMode();
 void formatSdCard();
 void pollNextPid();
+void sendObd2Service(uint8_t service, int16_t pid);
+void maybeSendFlowControl(const CANFDMessage& frame);
 void processSerialCommand(const String& line);
 void streamFrameJSON(const CANFDMessage& frame, uint32_t ts);
 void writeCSVFrame(const CANFDMessage& frame, uint32_t ts);
@@ -170,7 +185,7 @@ void setup() {
   uint32_t t = millis();
   while (!Serial && millis() - t < 3000) delay(10);
 
-  Serial.println(F("\n=== OBD2CanLogger v1.1 ==="));
+  Serial.println(F("\n=== OBD2CanLogger v2.0 ==="));
   Serial.println(F("Feather M4 CAN | ATSAMD51 | ACANFD | SdFat"));
 
   // ── RTC init (only if enabled in config) ──
@@ -228,7 +243,7 @@ void setup() {
   sessionStartMs = millis();
   Serial.println(F("[READY] Send JSON commands over Serial."));
   Serial.println(F("  {\"cmd\":\"status\"}  {\"cmd\":\"stop\"}  {\"cmd\":\"start\"}"));
-  Serial.println(F("  {\"cmd\":\"msc\"}  {\"cmd\":\"format\"}"));
+  Serial.println(F("  {\"cmd\":\"msc\"}  {\"cmd\":\"format\"}  {\"cmd\":\"dtc\"}  {\"cmd\":\"cleardtc\"}  {\"cmd\":\"vin\"}"));
 }
 
 // ─── Main Loop ────────────────────────────────────────────────────────────────
@@ -236,6 +251,7 @@ void loop() {
   CANFDMessage frame;
   if (can1.receiveFD0(frame)) {
     uint32_t ts = millis() - sessionStartMs;
+    maybeSendFlowControl(frame);   // ISO-TP: unlock multi-frame DTC/VIN replies
     if (!gConfig.filterEnabled || passesFilter(frame.id)) {
       frameCount++;
       if (logging) {
@@ -468,6 +484,47 @@ void processSerialCommand(const String& line) {
 
   } else if (strcmp(cmd, "format") == 0) {
     formatSdCard();
+
+  } else if (strcmp(cmd, "dtc") == 0) {
+    // Request stored DTCs (mode 03), pending DTCs (mode 07) and MIL status.
+    // Responses stream back as normal CAN frames for the web app to decode.
+    sendObd2Service(0x03, -1);
+    delay(50);
+    sendObd2Service(0x07, -1);
+    delay(50);
+    sendObd2Service(0x01, 0x01);
+    Serial.println(F("{\"ok\":true,\"cmd\":\"dtc\",\"msg\":\"DTC requests sent\"}"));
+
+  } else if (strcmp(cmd, "cleardtc") == 0) {
+    sendObd2Service(0x04, -1);   // mode 04: clear DTCs + reset MIL
+    Serial.println(F("{\"ok\":true,\"cmd\":\"cleardtc\",\"msg\":\"clear DTC request sent\"}"));
+
+  } else if (strcmp(cmd, "vin") == 0) {
+    sendObd2Service(0x09, 0x02); // mode 09 PID 02: VIN (multi-frame)
+    Serial.println(F("{\"ok\":true,\"cmd\":\"vin\",\"msg\":\"VIN request sent\"}"));
+
+  } else if (strcmp(cmd, "cansend") == 0) {
+    // Raw CAN transmit: {"cmd":"cansend","id":2015,"data":[2,1,12,0,0,0,0,0]}
+    if (!doc.containsKey("id") || !doc["data"].is<JsonArray>()) {
+      Serial.println(F("{\"ok\":false,\"cmd\":\"cansend\",\"msg\":\"need id + data[]\"}"));
+      return;
+    }
+    CANFDMessage tx;
+    tx.id   = doc["id"].as<uint32_t>();
+    tx.ext  = doc["ext"] | false;
+    tx.type = CANFDMessage::CAN_DATA;
+    JsonArray arr = doc["data"].as<JsonArray>();
+    tx.len = 0;
+    memset(tx.data, 0x00, 8);
+    for (uint8_t v : arr) {
+      if (tx.len >= 8) break;
+      tx.data[tx.len++] = v;
+    }
+    if (tx.len < 8) tx.len = 8;  // classic CAN OBD2 frames are always 8 bytes
+    bool ok = (can1.tryToSendReturnStatusFD(tx) == 0);
+    Serial.print(F("{\"ok\":"));
+    Serial.print(ok ? F("true") : F("false"));
+    Serial.println(F(",\"cmd\":\"cansend\"}"));
   }
 }
 
@@ -537,11 +594,61 @@ void pollNextPid() {
   memset(req.data, 0x00, 8);
   req.data[0] = 0x02;
   req.data[1] = 0x01;
-  req.data[2] = OBD2_PIDS[pidIndex];
 
-  if (can1.tryToSendReturnStatusFD(req) == 0) {
-    pidIndex = (pidIndex + 1) % OBD2_PID_COUNT;
+  if (pollFastSlot) {
+    req.data[2] = OBD2_FAST_PIDS[fastIndex];
+    if (can1.tryToSendReturnStatusFD(req) == 0) {
+      fastIndex    = (fastIndex + 1) % OBD2_FAST_COUNT;
+      pollFastSlot = false;
+    }
+  } else {
+    req.data[2] = OBD2_SLOW_PIDS[slowIndex];
+    if (can1.tryToSendReturnStatusFD(req) == 0) {
+      slowIndex    = (slowIndex + 1) % OBD2_SLOW_COUNT;
+      pollFastSlot = true;
+    }
   }
+}
+
+// ─── OBD2 Service Requests (DTC etc.) ────────────────────────────────────────
+// Sends a single-PCI OBD2 service request to the functional address 0x7DF.
+void sendObd2Service(uint8_t service, int16_t pid) {
+  CANFDMessage req;
+  req.id   = 0x7DF;
+  req.ext  = false;
+  req.type = CANFDMessage::CAN_DATA;
+  req.len  = 8;
+  memset(req.data, 0x00, 8);
+  if (pid >= 0) {
+    req.data[0] = 0x02;
+    req.data[1] = service;
+    req.data[2] = (uint8_t)pid;
+  } else {
+    req.data[0] = 0x01;
+    req.data[1] = service;
+  }
+  can1.tryToSendReturnStatusFD(req);
+}
+
+// ─── ISO-TP Flow Control ─────────────────────────────────────────────────────
+// When an ECU replies with a multi-frame (First Frame, PCI high nibble 0x1 —
+// e.g. a DTC list or the VIN), we must answer with a Flow Control frame
+// (0x30 = Continue To Send) on its physical request ID (response ID − 8),
+// otherwise the ECU never sends the Consecutive Frames.
+void maybeSendFlowControl(const CANFDMessage& frame) {
+  if (frame.id < 0x7E8 || frame.id > 0x7EF) return;
+  if (frame.len < 1 || (frame.data[0] & 0xF0) != 0x10) return;
+
+  CANFDMessage fc;
+  fc.id   = frame.id - 8;   // 0x7E8 → 0x7E0 etc.
+  fc.ext  = false;
+  fc.type = CANFDMessage::CAN_DATA;
+  fc.len  = 8;
+  memset(fc.data, 0x00, 8);
+  fc.data[0] = 0x30;  // FC: continue to send
+  fc.data[1] = 0x00;  // block size: unlimited
+  fc.data[2] = 0x00;  // separation time: 0 ms
+  can1.tryToSendReturnStatusFD(fc);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
