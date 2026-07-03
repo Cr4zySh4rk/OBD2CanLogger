@@ -1,27 +1,64 @@
-# OBD2 CAN Logger — //REDLINE
+<div align="center">
 
-> **Capture, decode, race and diagnose — a Need-for-Speed-style dashboard for your car's OBD2 port, powered by an Adafruit Feather M4 CAN, an SD card, and a browser.**
+# 🏁 OBD2 CAN Logger `//REDLINE`
 
----
+### Turn your car's OBD2 port into a street-racing telemetry rig.
 
-## Overview
+**Log every CAN frame · race the clock · read your ECU's mind — with an Adafruit Feather M4 CAN, an SD card, and a browser.**
 
-OBD2 CAN Logger is an open-source hardware + firmware + web-app project that:
+[![Release](https://img.shields.io/github/v/release/Cr4zySh4rk/OBD2CanLogger?style=for-the-badge&color=00eaff)](https://github.com/Cr4zySh4rk/OBD2CanLogger/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-ff2d78?style=for-the-badge)](LICENSE)
+[![Web Serial](https://img.shields.io/badge/Web%20Serial-Chrome%20%2F%20Edge-2bff88?style=for-the-badge)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API)
+[![Board](https://img.shields.io/badge/MCU-Feather%20M4%20CAN-ff9d00?style=for-the-badge)](https://www.adafruit.com/product/4759)
 
-1. **Logs every CAN frame** from your car's OBD2 port to an SD card in real-time (CSV + binary)
-2. **Streams live data** to a neon racing dashboard over USB Serial (Web Serial API) — animated speedo + tach with shift lights, live steering-wheel visualization, and flashing engine warnings
-3. **Times your runs** — 0–60 km/h, 0–100 km/h, ¼ mile with trap speed, 100–0 braking distance, longitudinal g-force, and a best-times leaderboard
-4. **Grades your car's health** — one-click diagnostic scan reads live sensors, trouble codes (DTCs), the check-engine light and the VIN, then produces a downloadable A–F report
-5. **Decodes signals** using standard OBD2 PIDs or custom `.dbc` files from [opendbc](https://github.com/commaai/opendbc)
-6. **Reconstructs engine maps** — fuel trims, ignition advance, MAF, MAP, throttle, RPM — as a baseline for tuning
+<img src="docs/screenshots/dashboard.png" alt="REDLINE dashboard — animated tach and speedo, steering visualization, live warnings" width="900"/>
 
-No hardware yet? Hit **🎮 Demo** in the web app for a fully simulated drive — every gauge, timer, warning and the health scan work offline.
+*No hardware? No problem — hit **🎮 Demo** and the whole dashboard runs on a simulated drive.*
 
-The ultimate goal is to reverse-engineer and document the factory calibration maps of any OBD2-compliant car, so they can serve as a starting point for custom ECU tuning.
+</div>
 
 ---
 
-## Hardware
+## ⚡ What is this?
+
+An open-source **hardware + firmware + web app** stack that plugs into any OBD2-compliant car:
+
+- 🏁 **Race dashboard** — canvas-animated speedometer and tachometer with glowing needles, red zones, and an F1-style shift-light strip tied to a configurable redline
+- ⏱️ **Performance timers** — 0–60 km/h, 0–100 km/h, ¼-mile with trap speed, 100–0 braking distance, live g-force, run history and persistent best times
+- 🎡 **Steering visualization** — an on-screen wheel that turns with your real steering angle, decoded from your car's DBC signals
+- 🩺 **One-click health report** — reads trouble codes, check-engine status and the VIN straight from the ECU, grades 11 systems **A–F**, and exports a styled HTML report
+- 🚨 **Live warnings** — flashing alerts for coolant/oil/intake temps, battery voltage, fuel trims, over-rev, low fuel and MIL
+- 💾 **Black-box logging** — every CAN frame written to SD in CSV + binary, streamed live over USB Serial
+- 🗺️ **Engine-map reconstruction** — fuel trims, ignition advance, MAF, MAP, throttle vs RPM, exportable as JSON
+- 📋 **DBC decoding** — drag-and-drop any `.dbc` from [opendbc](https://github.com/commaai/opendbc) to decode manufacturer-specific messages
+
+The long game: reverse-engineer and document the factory calibration maps of any OBD2 car as a starting point for custom ECU tuning.
+
+---
+
+## 🖼️ Gallery
+
+| ⚡ Performance | 🩺 Health Report |
+|---|---|
+| <img src="docs/screenshots/performance.png" width="440"/> | <img src="docs/screenshots/health.png" width="440"/> |
+| Launch-armed accel timers, ¼-mile, braking distance, 60-second speed trace, run history | A–F grade, 11 system checks, decoded DTCs, VIN, downloadable report |
+
+| 📡 Telemetry |
+|---|
+| <img src="docs/screenshots/telemetry.png" width="890"/> |
+| Raw CAN stream with live OBD2/DBC decoding and ID filtering |
+
+---
+
+## 🚀 Quick Start
+
+1. **Try it right now, no hardware:** open [`webapp/index.html`](webapp/index.html) in Chrome/Edge → click **🎮 Demo**
+2. **Build the logger:** flash the firmware onto a Feather M4 CAN + Adalogger wing (below), wire 3 pins to the OBD2 port
+3. **Drive:** click **Connect**, pick the COM port — gauges light up, timers arm when you stop, SD logging runs in the background
+
+---
+
+## 🔧 Hardware
 
 | Component | Part |
 |-----------|------|
@@ -46,7 +83,7 @@ The Adalogger FeatherWing stacks directly on top of the Feather M4 CAN — no ad
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 OBD2CanLogger/
@@ -54,24 +91,25 @@ OBD2CanLogger/
 │   └── OBD2CanLogger/
 │       └── OBD2CanLogger.ino      # Arduino sketch for Feather M4 CAN
 ├── webapp/
-│   └── index.html                 # Self-contained web dashboard (no server needed)
-├── dbc/
-│   └── (place .dbc files here)    # Download from opendbc or add your own
+│   └── index.html                 # Self-contained REDLINE dashboard (no server needed)
+├── desktop/                       # Electron wrapper of the same dashboard
+├── docs/                          # GitHub Pages copy + screenshots
+├── dbc/                           # Place .dbc files here (opendbc)
 └── README.md
 ```
 
 ---
 
-## Firmware
+## 💿 Firmware
 
 ### Requirements
 
-Install the following libraries via the Arduino Library Manager:
+Install via the Arduino Library Manager:
 
 | Library | Author | Notes |
 |---------|--------|-------|
 | `ACANFD_FeatherM4CAN` | Pierre Molinaro | CAN/CANFD driver for the ATSAMD51 built-in controller |
-| `SD` | Arduino | SD card read/write |
+| `SdFat` | Bill Greiman | SD card read/write (do **not** install "SD by Arduino") |
 | `RTClib` | Adafruit | Real-time clock (PCF8523 on Adalogger) |
 | `ArduinoJson` | Benoit Blanchon | v6+ — JSON serial protocol |
 | `Adafruit TinyUSB Library` | Adafruit | USB Mass Storage support for SD card access over USB |
@@ -86,31 +124,28 @@ Install the following libraries via the Arduino Library Manager:
 3. Select: **Adafruit Feather M4 CAN (SAMD51)**
 4. Upload `firmware/OBD2CanLogger/OBD2CanLogger.ino`
 
-### Default Behavior
+### What the firmware does
 
-- On power-up, the firmware reads `/config.json` from the SD card (if present)
-- Creates a timestamped session log: `session_20240101_120000.csv` and `.can`
-- Logs **every CAN frame** to SD
-- Streams decoded frames as JSON over USB Serial at 115200 baud
-- Red LED blinks every 5 seconds as heartbeat
+- Reads `/config.json` from SD on power-up, creates timestamped session logs (`.csv` + `.can`)
+- Logs **every CAN frame** to SD; streams decoded frames as JSON over USB Serial at 115200 baud
+- **Two-tier OBD2 PID poller** (30 ms slot time):
+  - **Fast tier (~8 Hz each):** vehicle speed + RPM — this is what makes the 0–60/0–100 timers accurate
+  - **Slow tier (round-robin):** throttle, coolant, ignition advance, MAF, MAP, fuel trims, O2, load, IAT, **fuel level, battery voltage, oil temp, ambient temp, MIL status**
+- **Automatic ISO-TP flow control** — answers ECU First Frames so multi-frame DTC lists and the VIN arrive complete
+- Red LED heartbeat every 5 s
 
 ### SD Card Setup
 
-The firmware requires a **FAT32-formatted SD card**. Any standard microSD or SD card up to 32 GB works. Cards larger than 32 GB may be exFAT by default — reformat them to FAT32 before use.
-
-**How to format by OS:**
+The firmware requires a **FAT32-formatted SD card** (up to 32 GB; larger cards ship exFAT — reformat first).
 
 | OS | Steps |
 |----|-------|
-| **macOS** | Open *Disk Utility* → select your SD card → click *Erase* → Format: **MS-DOS (FAT)** → Scheme: **Master Boot Record** → Erase |
-| **Windows** | Open *File Explorer* → right-click the SD drive → *Format* → File system: **FAT32** → *Start* _(for cards >32 GB use [guiformat](http://ridgecrop.co.uk/index.htm?guiformat.htm))_ |
-| **Linux** | `sudo mkfs.fat -F 32 /dev/sdX1` (replace `/dev/sdX1` with your card's partition) |
+| **macOS** | *Disk Utility* → select card → *Erase* → Format: **MS-DOS (FAT)** → Scheme: **Master Boot Record** |
+| **Windows** | *File Explorer* → right-click drive → *Format* → **FAT32** _(for >32 GB use [guiformat](http://ridgecrop.co.uk/index.htm?guiformat.htm))_ |
+| **Linux** | `sudo mkfs.fat -F 32 /dev/sdX1` |
 
-Once formatted, insert the card into the Adalogger FeatherWing before powering on the Feather M4 CAN. The firmware will automatically create log files on the next power-up.
-
-> **No card inserted?** The web dashboard's *Start Log* and *Stop Log* buttons will be **disabled** and a red "SD: No Card" indicator will appear in the Live Data toolbar. CAN frames are still streamed live to the browser — only SD logging is unavailable.
-
-> **Filling up?** Use the web app's *Configuration → SD Card Management → Format SD Card* button to erase all logs and start fresh, or click *Enter USB Storage Mode* to mount the card as a USB drive on your computer and manage files directly.
+> **No card inserted?** *Rec/Stop* are disabled and a red "SD: No Card" indicator appears — live streaming still works.
+> **Card filling up?** Use *Config → SD Card Management → Format SD Card*, or *Enter USB Storage Mode* to mount the card as a USB drive.
 
 ### SD Card Files
 
@@ -120,61 +155,75 @@ Once formatted, insert the card into the Adalogger FeatherWing before powering o
 | `/session_YYYYMMDD_HHMMSS.csv` | Human-readable log — one row per frame |
 | `/session_YYYYMMDD_HHMMSS.can` | Binary log — 24 bytes per frame, magic header `OBD2CAN\0` |
 
-### CSV Format
+---
 
-```
-timestamp_ms,id_hex,id_dec,extended,fd,dlc,data_hex,data_bytes
-0,000007E8,2024,0,0,8,04 41 0C 1A F8 00 00 00,8
-4,000007E8,2024,0,0,8,04 41 0D 62 00 00 00 00,8
-```
+## 🖥️ Web App
 
-### Serial JSON Protocol
+Open [`webapp/index.html`](webapp/index.html) in **Chrome** or **Edge** (Web Serial API required).
+No server, no Node.js, no install — one self-contained HTML file.
+
+| Tab | Description |
+|-----|-------------|
+| 🏁 **Dashboard** | Animated speedo + tach with configurable redline, shift-light strip, steering wheel visualization, 16 digital readouts, flashing warning banner |
+| ⚡ **Performance** | 0–60 / 0–100 km/h launch timers, ¼-mile + trap speed, 100–0 braking distance, g-force, speed trace, run history, persistent best times |
+| 🩺 **Health** | One-click scan → stored + pending DTCs with descriptions, MIL, VIN, 11 graded checks, downloadable HTML report, clear-DTC |
+| 📡 **Telemetry** | Scrolling raw CAN frame table, ID filter, live decode column |
+| 🗺️ **Maps** | Live scatter plots: TPS/RPM, fuel trim/RPM, ignition/RPM, MAF/RPM, MAP/RPM, speed/RPM. JSON export |
+| 📋 **DBC** | Drag-and-drop `.dbc` decoding, built-in OBD2 PID table, steering-signal picker |
+| 💾 **Logs** | Open and filter CSV logs from the SD card |
+| ⚙️ **Config** | Bitrate, session name, log formats, ID filters, RTC, tach redline |
+| 🖥️ **Console** | Raw JSON command terminal |
+
+### ⏱️ How the acceleration timers work
+
+Stop the car → timers **ARM** automatically. Floor it → launch is detected on the first speed sample above zero, and 60/100 km/h crossings are **interpolated between samples** for sub-sample accuracy (speed is polled at ~8 Hz by the firmware's fast tier). Distance is integrated for the ¼-mile; braking distance measures 100→0 km/h. Best times persist in the browser.
+
+### 🎡 Steering visualization
+
+Steering angle is **not a standard OBD2 PID** — it lives in manufacturer-specific CAN messages. Load your car's `.dbc` from [opendbc](https://github.com/commaai/opendbc) in the **DBC** tab and the wheel auto-binds to the first `STEER…ANGLE`-like signal (or pick any signal manually from the dropdown).
+
+### 🚨 Warning thresholds
+
+| Warning | Trigger |
+|---------|---------|
+| Engine coolant temp too high | > 105 °C |
+| Engine oil temp too high | > 125 °C |
+| Intake air temp high | > 65 °C |
+| Battery voltage low / charging high | < 11.8 V / > 15.2 V |
+| Fuel trim out of range | \|STFT\| or \|LTFT\| > 20 % |
+| Engine over-rev | RPM > configured redline |
+| Fuel level low | < 10 % |
+| Check engine light | MIL bit from PID 0x01 |
+
+---
+
+## 🔌 Serial JSON Protocol
 
 Send commands as JSON terminated by `\n`:
 
 ```jsonc
-// Get device status
-{"cmd":"status"}
-
-// Start a new logging session
-{"cmd":"start"}
-
-// Stop logging
-{"cmd":"stop"}
-
-// Update configuration (restart to apply bitrate changes)
+{"cmd":"status"}      // device status
+{"cmd":"start"}       // start a new logging session
+{"cmd":"stop"}        // stop logging
 {"cmd":"config","bitrate":500000,"logcsv":true,"logbin":true,"stream":true}
+{"cmd":"ls"}          // list SD files
+{"cmd":"msc"}         // USB Mass Storage mode (press Reset to exit)
+{"cmd":"format"}      // erase all SD log files, start fresh
 
-// List files on SD card
-{"cmd":"ls"}
-
-// Enter USB Mass Storage mode — SD card mounts as a drive on the host PC.
-// Press Reset on the Feather to exit MSC mode and resume logging.
-{"cmd":"msc"}
-
-// Format SD card — deletes all log files, starts a fresh logging session.
-{"cmd":"format"}
-
-// Request stored (mode 03) + pending (mode 07) DTCs and MIL status.
-// ECU responses stream back as normal CAN frames; the web app decodes them.
-{"cmd":"dtc"}
-
-// Clear DTCs and reset the check-engine light (mode 04)
-{"cmd":"cleardtc"}
-
-// Request the VIN (mode 09 PID 02, multi-frame ISO-TP)
-{"cmd":"vin"}
-
-// Transmit a raw CAN frame
-{"cmd":"cansend","id":2015,"data":[2,1,12,0,0,0,0,0]}
+// v2.0 diagnostics
+{"cmd":"dtc"}         // request stored (03) + pending (07) DTCs + MIL status
+{"cmd":"cleardtc"}    // clear DTCs, reset check-engine light (mode 04)
+{"cmd":"vin"}         // request VIN (mode 09 PID 02, multi-frame ISO-TP)
+{"cmd":"cansend","id":2015,"data":[2,1,12,0,0,0,0,0]}   // raw CAN transmit
 ```
 
-The device sends frames as compact JSON:
+Frames stream back as compact JSON:
+
 ```json
 {"t":1234,"id":"0x7E8","ext":0,"fd":0,"dlc":8,"d":"04 41 0C 1A F8 00 00 00"}
 ```
 
-### config.json Example
+### config.json example
 
 ```json
 {
@@ -187,169 +236,81 @@ The device sends frames as compact JSON:
 }
 ```
 
-Set `"filter": [0x7E8, 0x7DF]` to only log those IDs. Leave empty `[]` to capture everything.
+Set `"filter": [0x7E8, 0x7DF]` to only log those IDs; leave `[]` to capture everything.
 
 ---
 
-## Web App
+## 📊 Map Reconstruction
 
-Open `webapp/index.html` in **Google Chrome** or **Microsoft Edge** (Web Serial API required).
+The web app correlates live sensor readings into factory-map baselines:
 
-No server, no Node.js, no installation — it's a single self-contained HTML file.
+| Map | X | Y | What it tells you |
+|-----|---|---|-------------------|
+| Throttle | RPM | TPS % | Throttle body characterization |
+| Fuel Trim | RPM | STFT/LTFT % | How much the ECU corrects fueling |
+| Ignition | RPM | Advance ° | Spark timing across the rev range |
+| MAF | RPM | g/s | Airflow (volumetric-efficiency proxy) |
+| MAP | RPM | kPa | Manifold vacuum / boost curve |
+| Speed/RPM | RPM | km/h | Gear-ratio estimation |
 
-### Tabs
-
-| Tab | Description |
-|-----|-------------|
-| 🏁 **Dashboard** | Animated speedometer + tachometer with configurable redline, shift-light strip, live steering-wheel visualization (DBC-driven), 16 digital readouts (coolant, oil, battery, fuel, g-force…) and flashing warnings (coolant/oil temp too high, battery voltage, over-rev, fuel trims, low fuel, MIL). |
-| ⚡ **Performance** | Launch-armed 0–60 km/h and 0–100 km/h timers (sample-interpolated), ¼-mile time + trap speed, 100–0 km/h braking distance, live 60-second speed trace, run history and persistent best times. |
-| 🩺 **Health** | One-click health scan: reads stored + pending DTCs (with built-in code descriptions), MIL status, VIN, and grades 11 systems A–F. Downloadable HTML report. Clear DTCs / reset MIL. |
-| 📡 **Telemetry** | Scrolling raw CAN frame table. Filter by CAN ID. OBD2 PIDs auto-decoded. |
-| 🗺️ **Maps** | Live scatter plots: TPS/RPM, Fuel Trim/RPM, Ignition Advance/RPM, MAF/RPM, MAP/RPM, Speed/RPM. Export as JSON. |
-| 📋 **DBC** | Load any `.dbc` file (drag & drop) or use built-in OBD2 PID table. Shows live decoded signal values. Pick which signal drives the steering wheel (auto-detects `STEER*` signals). |
-| 💾 **Logs** | Open CSV logs from the SD card. Searchable/filterable. |
-| ⚙️ **Config** | Configure bitrate, session name, log format, ID filters, tach redline. Apply directly to device. |
-| 🖥️ **Console** | Raw JSON command terminal for direct device communication. |
-
-> **Steering visualization:** steering angle is not a standard OBD2 PID — it lives in manufacturer-specific CAN messages. Load your car's `.dbc` from opendbc in the DBC tab and the wheel auto-binds to the first `STEER…ANGLE` signal (or pick one manually).
-
-### Connecting
-
-1. Plug Feather M4 CAN into your computer via USB
-2. Open `webapp/index.html` in Chrome
-3. Click **Connect USB**
-4. Select the correct COM port
-5. Live data begins streaming immediately
+**Recommended drive cycle:** cold-start idle → gentle pulls 1000–6000 RPM per gear → steady cruises (30/60/100 km/h) → overrun decel → optional WOT pull. Export JSON afterwards.
 
 ---
 
-## DBC Files & Signal Decoding
+## 🗃️ Binary Log Format (`.can`)
 
-This project uses the [opendbc](https://github.com/commaai/opendbc) database to decode manufacturer-specific CAN messages.
-
-### Quick Start with opendbc
-
-```bash
-# Clone opendbc
-git clone https://github.com/commaai/opendbc.git
-
-# Find your car's DBC file
-ls opendbc/opendbc/dbc/ | grep -i toyota
-ls opendbc/opendbc/dbc/ | grep -i honda
-
-# Copy to dbc/ folder in this project
-cp opendbc/opendbc/dbc/toyota_nodsu_pt_generated.dbc ./dbc/
-```
-
-Then drag the `.dbc` file into the **DBC Decoder** tab of the web app.
-
-### Supported Signal Types
-
-- **Standard OBD2 PIDs** (Mode 01): Built-in — RPM, speed, TPS, ECT, MAF, MAP, fuel trims, O2 sensors, ignition advance
-- **Manufacturer-specific CAN** (via DBC): Engine maps, transmission data, ADAS data, EV battery data
-- **CANFD** frames: Logged and streamed; DBC decoding uses the first 8 data bytes
-
----
-
-## Map Reconstruction Methodology
-
-The web app reconstructs factory maps by correlating live sensor readings:
-
-### Maps Being Built
-
-| Map | X-Axis | Y-Axis | What It Tells You |
-|-----|--------|--------|-------------------|
-| Throttle Map | RPM | TPS % | Throttle body characterization |
-| Fuel Trim Map | RPM | STFT/LTFT % | How much the ECU is correcting fueling |
-| Ignition Map | RPM | Ignition Advance ° | Spark timing at different RPM |
-| MAF Map | RPM | MAF g/s | Airflow at different RPM (volumetric efficiency proxy) |
-| MAP Pressure | RPM | Intake MAP kPa | Manifold vacuum/boost curve |
-| Speed/RPM | RPM | Speed km/h | Gear ratio estimation |
-
-### Recommended Drive Cycle
-
-To capture representative maps:
-
-1. Cold start and idle warmup (captures idle fuel trims)
-2. Gentle acceleration runs 1000–6000 RPM in each gear
-3. Cruise at steady speeds (30, 60, 100 km/h)
-4. Deceleration / overrun (captures decel fuel cut)
-5. Wide Open Throttle run (optional — captures WOT fueling)
-
-Export the map data JSON after the drive for offline analysis.
-
----
-
-## Binary Log Format (.can)
-
-The binary log is optimized for post-processing. Each file starts with an 8-byte magic header followed by 24-byte records:
+8-byte magic `OBD2CAN\0`, then 24-byte records:
 
 ```
-Magic: "OBD2CAN\0" (8 bytes)
-
-Per-frame record (24 bytes):
-  Offset  Size  Field
-  0       4     timestamp_ms (uint32, ms since session start)
-  4       4     id (uint32, CAN arbitration ID)
-  8       1     dlc (data length code)
-  9       1     flags (bit0=FD, bit1=BRS, bit2=Extended ID)
-  10      2     padding
-  12      8     data (first 8 bytes; FD frames truncated to 8)
+Offset  Size  Field
+0       4     timestamp_ms (uint32)
+4       4     id (uint32)
+8       1     dlc
+9       1     flags (bit0=FD, bit1=BRS, bit2=Extended)
+10      2     padding
+12      8     data (FD frames truncated to 8)
 ```
 
-Parse with Python:
 ```python
 import struct
 
 with open('session.can', 'rb') as f:
-    magic = f.read(8)
-    assert magic == b'OBD2CAN\x00'
-    while True:
-        rec = f.read(24)
-        if len(rec) < 24: break
+    assert f.read(8) == b'OBD2CAN\x00'
+    while (rec := f.read(24)) and len(rec) == 24:
         ts, id_, dlc, flags, _, _, *data = struct.unpack('<IIBB2B8B', rec)
         print(f"t={ts}ms id=0x{id_:X} dlc={dlc} data={bytes(data[:dlc]).hex()}")
 ```
 
 ---
 
-## Firmware PID Polling
+## 🗺️ Roadmap
 
-The firmware auto-polls Mode 01 PIDs on a two-tier schedule (30 ms slot time):
-
-- **Fast tier (~8 Hz each):** vehicle speed (0x0D) and RPM (0x0C) — high-rate speed sampling is what makes the 0–60/0–100 timers accurate
-- **Slow tier (round-robin):** throttle, coolant temp, ignition advance, MAF, MAP, fuel trims, O2, engine load, IAT, fuel level, battery voltage, oil temp, ambient temp, MIL status
-
-It also answers ISO-TP First Frames from the ECU with Flow Control automatically, so multi-frame DTC lists and the VIN arrive complete.
-
----
-
-## Roadmap
-
-- [x] OBD2 PID poller (auto-query Mode 01 PIDs, two-tier fast/slow schedule)
-- [x] DTC read/clear + health report
+- [x] OBD2 PID poller (two-tier fast/slow schedule)
+- [x] DTC read/clear + graded health report
 - [x] Acceleration timers (0–60, 0–100, ¼ mile) + braking distance
 - [x] Steering-angle visualization from DBC signals
-- [x] Demo mode (full simulated drive, no hardware)
+- [x] Demo mode (full simulated drive, zero hardware)
 - [ ] 3D surface map visualization (RPM × Load → value)
 - [ ] Compare two log sessions side-by-side
 - [ ] Export maps to CSV / MegaTune format
 - [ ] Automatic gear detection from speed/RPM ratio
 - [ ] CANFD full 64-byte data logging
-- [ ] Wi-Fi streaming (with ESP32 co-processor or Feather variant)
+- [ ] Wi-Fi streaming (ESP32 co-processor or Feather variant)
 - [ ] opendbc fingerprinting (auto-identify car model from CAN traffic)
 
 ---
 
-## Credits & References
+## 🙌 Credits & References
 
 - [ACANFD_FeatherM4CAN](https://github.com/pierremolinaro/acanfd-feather-m4-can) — Pierre Molinaro — CAN driver
 - [opendbc](https://github.com/commaai/opendbc) — comma.ai — DBC database & car CAN decoding
-- [Adafruit Feather M4 CAN](https://learn.adafruit.com/adafruit-feather-m4-can-express) — Hardware documentation
-- [Betaflight Configurator](https://github.com/betaflight/betaflight-configurator) — UI inspiration
+- [Adafruit Feather M4 CAN](https://learn.adafruit.com/adafruit-feather-m4-can-express) — hardware documentation
+- Need for Speed / Betaflight Configurator — UI inspiration
 
----
+## ⚠️ Disclaimer
 
-## License
+Performance timing and diagnostics are for **closed-course / informational use**. Don't race on public roads, and don't treat the health report as a substitute for a professional inspection.
 
-MIT License — see [LICENSE](LICENSE)
+## 📄 License
+
+MIT — see [LICENSE](LICENSE)
