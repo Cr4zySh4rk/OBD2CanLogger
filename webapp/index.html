@@ -393,7 +393,15 @@
         </svg>
       </div>
       <div id="steer-angle-label">0.0°</div>
-      <div id="steer-src-label">No steering signal — load DBC or Demo</div>
+      <div id="steer-src-label">No steering signal — load DBC, Find Signal, or Demo</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
+        <button class="btn" id="steer-hunt-btn" onclick="steerHuntStart()"
+                title="No DBC for your car? Discover the steering signal from raw CAN traffic">🔍 Find Signal</button>
+        <button class="btn" id="steer-center-btn" onclick="steerRecenter()" style="display:none"
+                title="Set the current raw value as straight-ahead">⊕ Center</button>
+      </div>
+      <select id="steer-hunt-pick" style="display:none;max-width:240px;font-size:12px"
+              onchange="steerHuntBind(this.value)"></select>
     </div>
 
     <div class="panel gauge-panel" style="flex-direction:column">
@@ -956,6 +964,13 @@ function handleFrame(f) {
     decodeObd2(f);
   }
 
+  // steering: signal hunter capture + raw (DBC-less) binding
+  if (SteerHunt.phase || (state.steer.raw && id === state.steer.raw.id)) {
+    const bytes = f.d.split(' ').map(h => parseInt(h, 16));
+    if (SteerHunt.phase) steerHuntFeed(id, bytes);
+    if (state.steer.raw) steerRawFeed(id, bytes);
+  }
+
   const sig = decodeFrameDbc(id, f.d);
   addFrameRow(f, sig);
 
@@ -1054,11 +1069,163 @@ function updateSteerAngle(deg, source) {
 function setSteerSignal(key) {
   state.steer.signalKey = key;
   state.steer.auto = !key;
+  state.steer.rxCount = 0;
   if (key) {
     const [msgId, sigName] = key.split('::');
-    document.getElementById('steer-src-label').textContent = `DBC: ${sigName}`;
+    document.getElementById('steer-src-label').textContent =
+      `DBC: ${sigName} — waiting for CAN 0x${(+msgId).toString(16).toUpperCase()}…`;
   }
 }
+
+// ── Steering signal hunter — find the steering angle without a DBC ──────────
+// Phase 1 (baseline): wheel held straight — every broadcast CAN byte/word that
+// stays flat is a candidate carrier. Phase 2 (turn): wheel swept lock-to-lock —
+// candidates whose value sweeps smoothly with a large range win. The best one
+// is bound to the wheel as a raw id/byte/endian signal (no DBC needed).
+const SteerHunt = {
+  phase: null, stats: null, t0: 0,
+  BASE_MS: 5000, TURN_MS: 12000,
+};
+
+function steerHuntStart() {
+  if (!state.connected && !state.demo) { alert('Connect the device first (engine on).'); return; }
+  SteerHunt.stats = {};                       // id -> per-position stats
+  SteerHunt.phase = 'baseline';
+  SteerHunt.t0 = performance.now();
+  document.getElementById('steer-hunt-btn').disabled = true;
+  document.getElementById('steer-hunt-pick').style.display = 'none';
+  const lbl = document.getElementById('steer-src-label');
+  lbl.textContent = '① HOLD WHEEL STRAIGHT…';
+  setTimeout(() => {
+    SteerHunt.phase = 'turn';
+    lbl.textContent = '② NOW TURN LOCK-TO-LOCK, BOTH WAYS…';
+    setTimeout(() => {
+      SteerHunt.phase = null;
+      document.getElementById('steer-hunt-btn').disabled = false;
+      steerHuntAnalyze();
+    }, SteerHunt.TURN_MS);
+  }, SteerHunt.BASE_MS);
+}
+
+// Called from handleFrame for every broadcast frame while hunting
+function steerHuntFeed(id, bytes) {
+  if (!SteerHunt.phase) return;
+  if (id >= 0x7DF && id <= 0x7EF) return;                 // skip OBD2 diag traffic
+  let rec = SteerHunt.stats[id];
+  if (!rec) rec = SteerHunt.stats[id] = [{}, {}, {}, {}, {}, {}, {}, {}];
+  // track candidate values at each byte position: byte, wordBE, wordLE
+  for (let i = 0; i < bytes.length; i++) {
+    const cands = { b: bytes[i] };
+    if (i + 1 < bytes.length) {
+      cands.be = (bytes[i] << 8) | bytes[i+1];
+      cands.le = bytes[i] | (bytes[i+1] << 8);
+    }
+    const slot = rec[i];
+    for (const [kind, v] of Object.entries(cands)) {
+      let s = slot[kind];
+      if (!s) s = slot[kind] = { base:{min:Infinity,max:-Infinity}, turn:{min:Infinity,max:-Infinity,small:0,big:0,last:null} };
+      const ph = SteerHunt.phase === 'baseline' ? s.base : s.turn;
+      ph.min = Math.min(ph.min, v); ph.max = Math.max(ph.max, v);
+      if (SteerHunt.phase === 'turn') {
+        if (ph.last !== null) {
+          const d = Math.abs(v - ph.last);
+          const span = (kind === 'b') ? 256 : 65536;
+          if (d > 0 && d < span * 0.06) ph.small++;
+          else if (d >= span * 0.06)    ph.big++;
+        }
+        ph.last = v;
+      }
+    }
+  }
+}
+
+function steerHuntAnalyze() {
+  const results = [];
+  for (const [id, rec] of Object.entries(SteerHunt.stats)) {
+    rec.forEach((slot, byteIdx) => {
+      for (const kind of ['be', 'le', 'b']) {
+        const s = slot[kind];
+        if (!s || s.turn.last === null) continue;
+        const baseRange = s.base.max - s.base.min;
+        const turnRange = s.turn.max - s.turn.min;
+        const minTurn   = kind === 'b' ? 30 : 400;
+        if (!isFinite(baseRange) || turnRange < minTurn) continue;
+        if (baseRange > turnRange * 0.12) continue;               // must be flat when straight
+        const smooth = s.turn.small / Math.max(1, s.turn.small + s.turn.big);
+        if (smooth < 0.75) continue;                              // must sweep, not jump
+        // straight-ahead value comes from the baseline phase; scale from sweep range
+        const center = Math.round((s.base.min + s.base.max) / 2);
+        const halfRange = Math.max(s.turn.max - center, center - s.turn.min, 1);
+        results.push({ id: +id, byteIdx, kind, turnRange, smooth, center, halfRange,
+                       score: turnRange * smooth * (kind === 'b' ? 0.5 : 1) });
+      }
+    });
+  }
+  results.sort((a, b) => b.score - a.score);
+  const lbl = document.getElementById('steer-src-label');
+  if (!results.length) {
+    lbl.textContent = 'No steering-like signal found — your car may not broadcast steering angle on the OBD2 port';
+    return;
+  }
+  const pick = document.getElementById('steer-hunt-pick');
+  pick.innerHTML = '<option value="">— pick the steering candidate —</option>' +
+    results.slice(0, 6).map(r =>
+      `<option value="${r.id}|${r.byteIdx}|${r.kind}|${r.center}|${r.halfRange}">0x${r.id.toString(16).toUpperCase()} byte ${r.byteIdx}${r.kind==='b'?'':' ('+r.kind.toUpperCase()+' 16-bit)'} — range ${r.turnRange}</option>`
+    ).join('');
+  pick.style.display = '';
+  const t = results[0];
+  pick.value = `${t.id}|${t.byteIdx}|${t.kind}|${t.center}|${t.halfRange}`;
+  steerHuntBind(pick.value);
+  lbl.textContent = `③ Found ${results.length} candidate(s) — wheel bound to best. Turn to verify, or pick another.`;
+}
+
+function steerHuntBind(key) {
+  if (!key) return;
+  const [id, byteIdx, kind, center, halfRange] = key.split('|');
+  // centre = baseline straight-ahead value; scale assumes lock-to-lock ≈ ±540°
+  state.steer.raw = { id:+id, byteIdx:+byteIdx, kind,
+                      center:+center, scale: 540 / +halfRange };
+  localStorage.setItem('rl_steer_raw', JSON.stringify(state.steer.raw));
+  state.steer.signalKey = '';                                    // raw overrides DBC
+  document.getElementById('steer-center-btn').style.display = '';
+}
+
+function steerRecenter() {
+  const r = state.steer.raw;
+  if (!r) return;
+  r.center = null;                                               // next frame = new centre
+  document.getElementById('steer-src-label').textContent = 'Hold wheel straight — re-centring on next frame…';
+}
+
+function steerRawFeed(id, bytes) {
+  const r = state.steer.raw;
+  if (!r || id !== r.id || r.byteIdx >= bytes.length) return;
+  let v;
+  if (r.kind === 'be')      v = (bytes[r.byteIdx] << 8) | (bytes[r.byteIdx+1] || 0);
+  else if (r.kind === 'le') v = bytes[r.byteIdx] | ((bytes[r.byteIdx+1] || 0) << 8);
+  else                      v = bytes[r.byteIdx];
+  if (r.center === null || r.center === undefined) {
+    r.center = v;
+    localStorage.setItem('rl_steer_raw', JSON.stringify(r));
+  }
+  const span = r.kind === 'b' ? 256 : 65536;
+  let d = v - r.center;
+  if (d >  span/2) d -= span;                                    // wrap-around safe
+  if (d < -span/2) d += span;
+  const scale = r.scale || 1;
+  updateSteerAngle(d * scale, `RAW 0x${id.toString(16).toUpperCase()} byte ${r.byteIdx} (${r.kind.toUpperCase()}) · live`);
+}
+
+// restore a previously-hunted binding (centre + scale persist across sessions)
+try {
+  const saved = JSON.parse(localStorage.getItem('rl_steer_raw'));
+  if (saved && saved.id) {
+    state.steer.raw = saved;
+    document.getElementById('steer-center-btn').style.display = '';
+    document.getElementById('steer-src-label').textContent =
+      `RAW 0x${saved.id.toString(16).toUpperCase()} byte ${saved.byteIdx} — waiting for frames…`;
+  }
+} catch(_) {}
 
 // ── Demo mode — full simulated drive, no hardware needed ──
 function toggleDemo() {
@@ -2082,8 +2249,11 @@ function parseDbc(text, name) {
   }
   if (autoSteer && state.steer.auto) {
     state.steer.signalKey = autoSteer;
+    state.steer.rxCount = 0;
     steerSel.value = autoSteer;
-    document.getElementById('steer-src-label').textContent = 'DBC: ' + autoSteer.split('::')[1];
+    const [mId, sName] = autoSteer.split('::');
+    document.getElementById('steer-src-label').textContent =
+      `DBC: ${sName} — waiting for CAN 0x${(+mId).toString(16).toUpperCase()}…`;
   }
   document.getElementById('dbc-msg-count').textContent = mc;
   document.getElementById('dbc-sig-count').textContent = sc;
@@ -2100,8 +2270,10 @@ function decodeFrameDbc(id, hex) {
     const val = raw * sig.factor + sig.offset;
     const el = document.getElementById(`dv-${id}-${sig.name}`);
     if (el) el.textContent = val.toFixed(2) + ' ' + sig.unit;
-    if (state.steer.signalKey === id + '::' + sig.name)
-      updateSteerAngle(val, 'DBC: ' + sig.name);
+    if (state.steer.signalKey === id + '::' + sig.name) {
+      state.steer.rxCount = (state.steer.rxCount || 0) + 1;
+      updateSteerAngle(val, `DBC: ${sig.name} (0x${id.toString(16).toUpperCase()} · live)`);
+    }
     if (parts.length < 3) parts.push(`${sig.name}=${val.toFixed(1)}${sig.unit}`);
   }
   return parts.join(' | ');
@@ -2110,15 +2282,20 @@ function decodeFrameDbc(id, hex) {
 function extractBits(bytes, start, len, order, signed) {
   let raw = 0n;
   if (order === 1) {
+    // Intel / little-endian (@1): start bit is the LSB, walk upward
     for (let i=0; i<len; i++) {
       const bi=Math.floor((start+i)/8), bp=(start+i)%8;
       if (bi<bytes.length) raw |= BigInt((bytes[bi]>>bp)&1) << BigInt(i);
     }
   } else {
+    // Motorola / big-endian (@0): start bit is the MSB. DBC bit numbering walks
+    // DOWN within a byte (7…0), then jumps to bit 7 of the next byte — the
+    // classic "sawtooth": pos-1 normally, pos+15 when crossing a byte boundary.
+    let pos = start;
     for (let i=0; i<len; i++) {
-      const bi=Math.floor(start/8), bp=7-(start%8);
+      const bi=Math.floor(pos/8), bp=pos%8;
       if (bi<bytes.length) raw |= BigInt((bytes[bi]>>bp)&1) << BigInt(len-1-i);
-      start++;
+      pos = (bp === 0) ? pos + 15 : pos - 1;
     }
   }
   if (signed && raw >= BigInt(1)<<BigInt(len-1)) raw -= BigInt(1)<<BigInt(len);
