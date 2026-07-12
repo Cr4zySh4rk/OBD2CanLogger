@@ -1054,9 +1054,11 @@ function updateSteerAngle(deg, source) {
 function setSteerSignal(key) {
   state.steer.signalKey = key;
   state.steer.auto = !key;
+  state.steer.rxCount = 0;
   if (key) {
     const [msgId, sigName] = key.split('::');
-    document.getElementById('steer-src-label').textContent = `DBC: ${sigName}`;
+    document.getElementById('steer-src-label').textContent =
+      `DBC: ${sigName} — waiting for CAN 0x${(+msgId).toString(16).toUpperCase()}…`;
   }
 }
 
@@ -2082,8 +2084,11 @@ function parseDbc(text, name) {
   }
   if (autoSteer && state.steer.auto) {
     state.steer.signalKey = autoSteer;
+    state.steer.rxCount = 0;
     steerSel.value = autoSteer;
-    document.getElementById('steer-src-label').textContent = 'DBC: ' + autoSteer.split('::')[1];
+    const [mId, sName] = autoSteer.split('::');
+    document.getElementById('steer-src-label').textContent =
+      `DBC: ${sName} — waiting for CAN 0x${(+mId).toString(16).toUpperCase()}…`;
   }
   document.getElementById('dbc-msg-count').textContent = mc;
   document.getElementById('dbc-sig-count').textContent = sc;
@@ -2100,8 +2105,10 @@ function decodeFrameDbc(id, hex) {
     const val = raw * sig.factor + sig.offset;
     const el = document.getElementById(`dv-${id}-${sig.name}`);
     if (el) el.textContent = val.toFixed(2) + ' ' + sig.unit;
-    if (state.steer.signalKey === id + '::' + sig.name)
-      updateSteerAngle(val, 'DBC: ' + sig.name);
+    if (state.steer.signalKey === id + '::' + sig.name) {
+      state.steer.rxCount = (state.steer.rxCount || 0) + 1;
+      updateSteerAngle(val, `DBC: ${sig.name} (0x${id.toString(16).toUpperCase()} · live)`);
+    }
     if (parts.length < 3) parts.push(`${sig.name}=${val.toFixed(1)}${sig.unit}`);
   }
   return parts.join(' | ');
@@ -2110,15 +2117,20 @@ function decodeFrameDbc(id, hex) {
 function extractBits(bytes, start, len, order, signed) {
   let raw = 0n;
   if (order === 1) {
+    // Intel / little-endian (@1): start bit is the LSB, walk upward
     for (let i=0; i<len; i++) {
       const bi=Math.floor((start+i)/8), bp=(start+i)%8;
       if (bi<bytes.length) raw |= BigInt((bytes[bi]>>bp)&1) << BigInt(i);
     }
   } else {
+    // Motorola / big-endian (@0): start bit is the MSB. DBC bit numbering walks
+    // DOWN within a byte (7…0), then jumps to bit 7 of the next byte — the
+    // classic "sawtooth": pos-1 normally, pos+15 when crossing a byte boundary.
+    let pos = start;
     for (let i=0; i<len; i++) {
-      const bi=Math.floor(start/8), bp=7-(start%8);
+      const bi=Math.floor(pos/8), bp=pos%8;
       if (bi<bytes.length) raw |= BigInt((bytes[bi]>>bp)&1) << BigInt(len-1-i);
-      start++;
+      pos = (bp === 0) ? pos + 15 : pos - 1;
     }
   }
   if (signed && raw >= BigInt(1)<<BigInt(len-1)) raw -= BigInt(1)<<BigInt(len);
